@@ -1,0 +1,102 @@
+# Publishes a release when a version tag is pushed:
+#   git tag v1.2.3
+#   git push origin v1.2.3
+# It checks the tag is on main, builds and tests everything, then runs build-installer.ps1 -Publish, which uploads
+# Setup and the update packages as GitHub release v1.2.3. Installed copies update to it at their next check.
+#
+# "Run workflow" in the Actions tab is a trial run: it builds the installer for the version you type and keeps it as
+# a downloadable artifact, without publishing anything.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (trial run, nothing is published), e.g. 1.2.3'
+        required: true
+
+permissions:
+  contents: write   # create the release and upload its files
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history, to check the tag is on main
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Work out the version
+        id: version
+        shell: pwsh
+        env:
+          EVENT: ${{ github.event_name }}
+          TAG: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          $publish = $env:EVENT -eq 'push'
+          $version = if ($publish) { $env:TAG -replace '^v', '' } else { $env:INPUT_VERSION.Trim() }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "'$version' isn't a version like 1.2.3 (tags must look like v1.2.3)." }
+          if ($publish) {
+            git merge-base --is-ancestor HEAD origin/main
+            if ($LASTEXITCODE -ne 0) { throw "Tag v$version isn't on main; releases are only made from main." }
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "publish=$publish" >> $env:GITHUB_OUTPUT
+          Write-Host "Version $version, publish: $publish"
+
+      # The app targets win-x64 only in Release, so restore must know the configuration too.
+      - name: Restore
+        run: dotnet restore HapticLink.sln -p:Configuration=Release
+
+      - name: Build
+        run: dotnet build HapticLink.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test HapticLink.sln -c Release --no-build
+
+      # The virtual DualSense driver is signed with the release certificate (drivers/make-release-cert.ps1 made it; its
+      # .pfx is the PAD_CERT_PFX_B64 secret). A trial run without the secrets uses a throwaway development certificate.
+      - name: Driver signing certificate
+        shell: pwsh
+        env:
+          PAD_CERT_PFX_B64: ${{ secrets.PAD_CERT_PFX_B64 }}
+          PAD_CERT_PASSWORD: ${{ secrets.PAD_CERT_PASSWORD }}
+        run: |
+          if ($env:PAD_CERT_PFX_B64) {
+            $pfx = Join-Path $env:RUNNER_TEMP 'pad-release.pfx'
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PAD_CERT_PFX_B64))
+            "PAD_CERT_PFX=$pfx" >> $env:GITHUB_ENV
+            "PAD_CERT_PASSWORD=$env:PAD_CERT_PASSWORD" >> $env:GITHUB_ENV
+          } elseif ('${{ steps.version.outputs.publish }}' -eq 'True') {
+            throw 'The PAD_CERT_PFX_B64 / PAD_CERT_PASSWORD secrets are missing; releases must sign the driver with them.'
+          } else {
+            Write-Host 'No release certificate: this trial run signs the driver with a development certificate.'
+          }
+
+      - name: Build installer${{ github.event_name == 'push' && ' and publish the release' || ' (trial run)' }}
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ('${{ steps.version.outputs.publish }}' -eq 'True') {
+            ./build-installer.ps1 -Version '${{ steps.version.outputs.version }}' -Publish
+          } else {
+            ./build-installer.ps1 -Version '${{ steps.version.outputs.version }}'
+          }
+
+      - name: Keep the installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: HapticLink-${{ steps.version.outputs.version }}
+          path: artifacts/installer/

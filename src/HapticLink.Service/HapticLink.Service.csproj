@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The HapticLink service (LocalSystem): finds a DualSense connected over Bluetooth, gives games a virtual wired one,
+    relays games' output and haptics back, hides the real pad from games. Also the one-time setup and removal.
+    Its <Version> is the service's own: the app re-runs setup (one admin prompt) only when the bundled service is newer
+    than the installed one, so bump it when the service, driver or helper change.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>HapticLink.Service</RootNamespace>
+    <AssemblyName>HapticLink.Service</AssemblyName>
+    <Version>1.0.0</Version>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <DebugType>embedded</DebugType>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HapticLink.Tests" />
+  </ItemGroup>
+
+</Project>

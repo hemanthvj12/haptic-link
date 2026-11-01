@@ -1,0 +1,47 @@
+# Builds everything (driver, helper, service, app) and runs the tests on every push to main and every pull request.
+name: Build and test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      # The C driver and helper (signed with a throwaway development certificate here).
+      - name: Build the service folder
+        shell: pwsh
+        run: ./drivers/build-service.ps1
+
+      - name: Restore
+        run: dotnet restore HapticLink.sln -p:Configuration=Release
+
+      - name: Build
+        run: dotnet build HapticLink.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test HapticLink.sln -c Release --no-build --logger "trx;LogFileName=results.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: '**/TestResults/*.trx'
+          if-no-files-found: ignore

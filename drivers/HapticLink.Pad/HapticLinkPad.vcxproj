@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  HapticLink's virtual DualSense: a UMDF2 HID minidriver built with the ordinary MSVC toolset.
+  The UMDF headers and stub library come from Microsoft's WDK NuGet package (unpacked by
+  build-driver.ps1 into artifacts\wdk); no full WDK install or driver toolset is needed.
+-->
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{3E9A1C47-2B5D-4F68-9A0C-7D1E2F3A4B5C}</ProjectGuid>
+    <RootNamespace>HapticLinkPad</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+    <WdkRoot Condition="'$(WdkRoot)' == ''">$(MSBuildThisFileDirectory)..\..\artifacts\wdk\c\</WdkRoot>
+    <UmdfVersion>2.15</UmdfVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <!-- Whatever MSVC toolset the installed Visual Studio has (v143 on GitHub's runners, v145 with VS 2026). -->
+    <PlatformToolset>$(DefaultPlatformToolset)</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <TargetName>HapticLinkPad</TargetName>
+    <OutDir>$(MSBuildThisFileDirectory)..\..\artifacts\driver\bin\</OutDir>
+    <IntDir>$(MSBuildThisFileDirectory)..\..\artifacts\driver\obj\</IntDir>
+    <GenerateManifest>false</GenerateManifest>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(WdkRoot)Include\wdf\umdf\$(UmdfVersion);$(WdkRoot)Include\10.0.26100.0\km;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>UMDF_VERSION_MAJOR=2;UMDF_VERSION_MINOR=15;_WIN32_WINNT=0x0A00;WIN32_LEAN_AND_MEAN;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <CompileAs>CompileAsC</CompileAs>
+      <LanguageStandard_C>stdc17</LanguageStandard_C>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <ControlFlowGuard>Guard</ControlFlowGuard>
+      <Optimization>MaxSpeed</Optimization>
+    </ClCompile>
+    <Link>
+      <AdditionalLibraryDirectories>$(WdkRoot)Lib\wdf\umdf\x64\$(UmdfVersion);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>WdfDriverStubUm.lib;mincore.lib;ntdll.lib</AdditionalDependencies>
+      <IgnoreAllDefaultLibraries>false</IgnoreAllDefaultLibraries>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <OptimizeReferences>true</OptimizeReferences>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="PadDriver.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="DualSense.h" />
+    <ClInclude Include="PadShared.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

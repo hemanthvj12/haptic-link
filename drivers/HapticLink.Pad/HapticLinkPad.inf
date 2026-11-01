@@ -1,0 +1,74 @@
+;
+; HapticLinkPad.inf - HapticLink's virtual wired DualSense (UMDF2 HID minidriver).
+; HapticLink's pad service creates the device with SwDeviceCreate (hardware id
+; HapticLink_DualSense), so nothing in this INF creates a device by itself.
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = HIDClass
+ClassGuid   = {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Provider    = %ProviderString%
+DriverVer   = 11/01/2026,1.0.0.0
+CatalogFile = HapticLinkPad.cat
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskDescription%,,,
+
+[SourceDisksFiles]
+HapticLinkPad.dll = 1
+
+[Manufacturer]
+%ManufacturerString% = HapticLink, NTamd64.10.0...19041
+
+[HapticLink.NTamd64.10.0...19041]
+%DeviceDesc% = HapticLinkPad, HapticLink_DualSense
+
+[HapticLinkPad.NT]
+CopyFiles = HapticLinkPad.Copy
+Include   = MsHidUmdf.inf
+Needs     = MsHidUmdf.NT
+Include   = WUDFRD.inf
+Needs     = WUDFRD_LowerFilter.NT
+
+[HapticLinkPad.NT.hw]
+Include = MsHidUmdf.inf
+Needs   = MsHidUmdf.NT.hw
+Include = WUDFRD.inf
+Needs   = WUDFRD_LowerFilter.NT.hw
+
+[HapticLinkPad.NT.Services]
+Include = MsHidUmdf.inf
+Needs   = MsHidUmdf.NT.Services
+Include = WUDFRD.inf
+Needs   = WUDFRD_LowerFilter.NT.Services
+
+[HapticLinkPad.NT.Filters]
+Include = WUDFRD.inf
+Needs   = WUDFRD_LowerFilter.NT.Filters
+
+[HapticLinkPad.NT.Wdf]
+UmdfService              = "HapticLinkPad", HapticLinkPad.Install
+UmdfServiceOrder         = HapticLinkPad
+UmdfKernelModeClientPolicy = AllowKernelModeClients
+UmdfFileObjectPolicy     = AllowNullAndUnknownFileObjects
+UmdfMethodNeitherAction  = Copy
+UmdfFsContextUsePolicy   = CanUseFsContext2
+UmdfHostProcessSharing   = ProcessSharingDisabled
+
+[HapticLinkPad.Install]
+UmdfLibraryVersion = 2.15.0
+ServiceBinary      = "%13%\HapticLinkPad.dll"
+
+[HapticLinkPad.Copy]
+HapticLinkPad.dll
+
+[Strings]
+ProviderString     = "HapticLink"
+ManufacturerString = "HapticLink"
+DeviceDesc         = "HapticLink Virtual DualSense"
+DiskDescription    = "HapticLink virtual pad driver"

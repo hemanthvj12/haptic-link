@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- HapticLink's tray app: the on/off switch, status, one-time setup, start with Windows and updates. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>HapticLink.App</RootNamespace>
+    <AssemblyName>HapticLink</AssemblyName>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <Version>1.0.0</Version>
+    <Product>HapticLink for DualSense</Product>
+    <Description>Haptics, adaptive triggers, rumble and lights for a DualSense on Bluetooth.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Keep in step with the vpk tool version in .config/dotnet-tools.json. -->
+    <PackageReference Include="Velopack" Version="1.2.161" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+
+  <!-- The service folder (drivers\build-service.ps1 builds it into artifacts\service) ships as "service" next to the exe. -->
+  <Target Name="CopyServiceToOutput" AfterTargets="Build" Condition="Exists('$(MSBuildThisFileDirectory)..\..\artifacts\service\HapticLink.Service.exe')">
+    <ItemGroup>
+      <ServiceFile Include="$(MSBuildThisFileDirectory)..\..\artifacts\service\**\*" />
+    </ItemGroup>
+    <RemoveDir Directories="$(OutDir)service" />
+    <Copy SourceFiles="@(ServiceFile)" DestinationFiles="@(ServiceFile->'$(OutDir)service\%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
+
+  <Target Name="CopyServiceToPublish" AfterTargets="Publish" Condition="Exists('$(MSBuildThisFileDirectory)..\..\artifacts\service\HapticLink.Service.exe')">
+    <ItemGroup>
+      <ServiceFile Include="$(MSBuildThisFileDirectory)..\..\artifacts\service\**\*" />
+    </ItemGroup>
+    <RemoveDir Directories="$(PublishDir)service" />
+    <Copy SourceFiles="@(ServiceFile)" DestinationFiles="@(ServiceFile->'$(PublishDir)service\%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
+
+</Project>

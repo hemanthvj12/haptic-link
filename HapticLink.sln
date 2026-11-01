@@ -1,0 +1,43 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{AFFD2994-E6A3-4D85-A630-69285075D684}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HapticLink.Service", "src\HapticLink.Service\HapticLink.Service.csproj", "{00B136B9-F145-4CEB-967E-293F2BF00D16}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HapticLink.App", "src\HapticLink.App\HapticLink.App.csproj", "{96C57257-2419-4F51-9611-4DECEA12DE5F}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{3A16ED50-3234-4731-AA1B-3FD31A4E8DBC}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HapticLink.Tests", "tests\HapticLink.Tests\HapticLink.Tests.csproj", "{93985554-69D9-495D-9185-4058E9789F66}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{00B136B9-F145-4CEB-967E-293F2BF00D16}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{00B136B9-F145-4CEB-967E-293F2BF00D16}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{00B136B9-F145-4CEB-967E-293F2BF00D16}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{00B136B9-F145-4CEB-967E-293F2BF00D16}.Release|Any CPU.Build.0 = Release|Any CPU
+		{96C57257-2419-4F51-9611-4DECEA12DE5F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{96C57257-2419-4F51-9611-4DECEA12DE5F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{96C57257-2419-4F51-9611-4DECEA12DE5F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{96C57257-2419-4F51-9611-4DECEA12DE5F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{93985554-69D9-495D-9185-4058E9789F66}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{93985554-69D9-495D-9185-4058E9789F66}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{93985554-69D9-495D-9185-4058E9789F66}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{93985554-69D9-495D-9185-4058E9789F66}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{00B136B9-F145-4CEB-967E-293F2BF00D16} = {AFFD2994-E6A3-4D85-A630-69285075D684}
+		{96C57257-2419-4F51-9611-4DECEA12DE5F} = {AFFD2994-E6A3-4D85-A630-69285075D684}
+		{93985554-69D9-495D-9185-4058E9789F66} = {3A16ED50-3234-4731-AA1B-3FD31A4E8DBC}
+	EndGlobalSection
+EndGlobal

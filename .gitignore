@@ -1,0 +1,8 @@
+bin/
+obj/
+artifacts/
+*.user
+.vs/
+
+# Personal notes for Claude about the owner's own setup
+CLAUDE.local.md
