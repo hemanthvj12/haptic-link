@@ -22,7 +22,7 @@ Games only use a DualSense's **haptics, adaptive triggers, rumble and light bar*
 
 - Click the tray icon for the menu: status, the **Full DualSense features** switch, the **Controller speaker** switch, *Start with Windows*, updates, the log folder.
 - The controller speaker is on by default. In Windows' Sound settings it's listed as *DualSense Controller (HapticLink)*; games find it by themselves, so you don't need to pick it. If haptics ever stutter while the controller plays sound, try turning the speaker off.
-- The switch is remembered. Exiting the tray app doesn't stop the feature (the background service does the work); turn the switch off for that.
+- The switch is remembered. HapticLink only works while its tray app runs: Exit turns it off (games get the controller back as it is) until you start HapticLink again.
 - While it's active, only the virtual controller is visible to games and other apps. Apps that need the real one (for example PeripheralHub for its battery reading) are let through automatically.
 
 ## How it works

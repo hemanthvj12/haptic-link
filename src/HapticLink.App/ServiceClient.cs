@@ -34,6 +34,38 @@ public static class ServiceClient
     /// <summary>Turns a feature ("speaker") on or off.</summary>
     public static bool SetFeature(string name, bool on) => Ask($"SET {name} {(on ? 1 : 0)}") is not null;
 
+    /// <summary>
+    /// Holds an ATTACH connection open for as long as this app runs: the service only bridges while the app is running,
+    /// so exiting (or a crash) turns everything off. Reconnects every 2 s when the service restarts or isn't there yet.
+    /// </summary>
+    public static IDisposable HoldAttached()
+    {
+        var cts = new CancellationTokenSource();
+        var thread = new Thread(() =>
+        {
+            while (!cts.IsCancellationRequested)
+            {
+                try
+                {
+                    using var pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+                    pipe.ConnectAsync(2000, cts.Token).GetAwaiter().GetResult();
+                    using var reader = new StreamReader(pipe, new UTF8Encoding(false), false, 1024, leaveOpen: true);
+                    using var writer = new StreamWriter(pipe, new UTF8Encoding(false), 1024, leaveOpen: true) { AutoFlush = true, NewLine = "\n" };
+                    writer.WriteLine("ATTACH");
+                    reader.ReadLine();
+                    // Nothing more is said: the read below only returns when the service goes away or the app exits.
+                    var buffer = new byte[1];
+                    while (pipe.ReadAsync(buffer, cts.Token).AsTask().GetAwaiter().GetResult() > 0) { }
+                }
+                catch (OperationCanceledException) { return; }
+                catch (Exception ex) when (ex is TimeoutException or IOException or UnauthorizedAccessException) { }
+                cts.Token.WaitHandle.WaitOne(2000);
+            }
+        }) { IsBackground = true, Name = "service attach" };
+        thread.Start();
+        return cts;
+    }
+
     private static string? Ask(string command)
     {
         try

@@ -4,7 +4,8 @@ namespace HapticLink.App;
 
 /// <summary>
 /// The tray icon and its menu. The icon is coloured while the bridge runs and grey otherwise; hovering shows the status.
-/// The work happens in the service, so closing this app (Exit) doesn't stop the bridge: the switch does.
+/// The work happens in the service, but only while this app runs (it holds an ATTACH connection): Exit turns HapticLink
+/// off until the app starts again, and the switch is remembered (owner, 2026-11-02).
 /// </summary>
 internal sealed class TrayApp : ApplicationContext
 {
@@ -26,6 +27,7 @@ internal sealed class TrayApp : ApplicationContext
     private readonly SynchronizationContext _ui;
     private ServiceStatus? _last;
     private bool _busy, _setupNeeded;
+    private readonly IDisposable _attach = ServiceClient.HoldAttached();
 
     public TrayApp()
     {
@@ -45,7 +47,7 @@ internal sealed class TrayApp : ApplicationContext
         };
         var log = new ToolStripMenuItem("Open log folder");
         log.Click += (_, _) => { Directory.CreateDirectory(AppLog.Folder); Process.Start(new ProcessStartInfo(AppLog.Folder) { UseShellExecute = true }); };
-        var exit = new ToolStripMenuItem("Exit (the switch stays as it is)");
+        var exit = new ToolStripMenuItem("Exit (turns HapticLink off)") { ToolTipText = "Games get the controller back as it is. Starting HapticLink again turns it back on." };
         exit.Click += (_, _) => ExitThread();
 
         _menu.Items.AddRange([_status, _setup, new ToolStripSeparator(), _toggle, _speaker, new ToolStripSeparator(), _startup, _update, log,
@@ -155,6 +157,7 @@ internal sealed class TrayApp : ApplicationContext
     protected override void ExitThreadCore()
     {
         _poll.Stop();
+        _attach.Dispose();
         _icon.Visible = false;
         _icon.Dispose();
         base.ExitThreadCore();

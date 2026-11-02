@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0 (2026-11-02)
+- HapticLink only works while its tray app runs: Exit (or the app not starting) turns it off, and games get the controller back as it is. The switch is remembered for the next start.
+- PeripheralHub hides its "Full DualSense features" switch while the HapticLink app isn't running.
+- Service 1.2.0: after updating, HapticLink asks once for administrator rights to update its background service.
+
 ## 1.1.0 (2026-11-02)
 - The controller's speaker works over Bluetooth: sounds games play on the controller (Stellar Blade's parry sound, for one) come out of its speaker, or of headphones plugged into it.
 - New tray switch "Controller speaker" (on by default) to turn that off.

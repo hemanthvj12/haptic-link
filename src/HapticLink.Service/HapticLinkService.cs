@@ -9,7 +9,9 @@ using Microsoft.Win32.SafeHandles;
 namespace HapticLink.Service;
 
 /// <summary>
-/// The service's work. While "enabled", it looks for a DualSense connected over Bluetooth about once a second and bridges
+/// The service's work. It only works while the HapticLink app (the tray) runs: the app holds a pipe connection open
+/// (ATTACH), and with none for a few seconds the bridge stops and the state is "closed" (owner, 2026-11-02: "HapticLink
+/// should stop completely when the tray is not running"). While the app runs and the feature is "enabled", it looks for a DualSense connected over Bluetooth about once a second and bridges
 /// the first one it finds (<see cref="Bridge"/>); when the pad goes away or the feature is turned off, the bridge stops.
 /// Apps talk to it over the control pipe (<see cref="Control"/>).
 /// </summary>
@@ -25,6 +27,10 @@ internal sealed class HapticLinkService : IDisposable
     private Bridge? _bridge;
     private string _state = "starting", _message = "";
     private DateTime _retryAt = DateTime.MinValue;
+    // The app's held connections (ATTACH). A short grace keeps the bridge through the app restarting (an update).
+    private int _attached;
+    private DateTime _detachedAt = DateTime.MinValue;
+    private static readonly TimeSpan DetachGrace = TimeSpan.FromSeconds(5);
 
     public void Start()
     {
@@ -54,6 +60,12 @@ internal sealed class HapticLinkService : IDisposable
     {
         lock (_gate)
         {
+            if (_attached == 0 && DateTime.UtcNow - _detachedAt >= DetachGrace)
+            {
+                StopBridge("the HapticLink app isn't running");
+                Set("closed", "Off while the HapticLink app isn't running.");
+                return;
+            }
             if (!Settings.Enabled)
             {
                 StopBridge("turned off");
@@ -127,7 +139,9 @@ internal sealed class HapticLinkService : IDisposable
     ///   HELLO &lt;app&gt;  → OK &lt;service version&gt; &lt;protocol&gt;    ("HELLO PeripheralHub" also keeps that app on HidHide's
     ///                                                         allowed list, so it still sees the pad it shows)
     ///   STATUS        → OK &lt;state&gt;|&lt;enabled 0/1&gt;|&lt;haptics 0/1&gt;|&lt;controller MAC or empty&gt;|&lt;message&gt;
-    ///                   state: off, waiting, starting, on, error
+    ///                   state: closed (the HapticLink app isn't running, so nothing runs), off, waiting, starting, on, error
+    ///   ATTACH        → OK; the HapticLink app keeps this connection open while it runs. The bridge only runs while
+    ///                   one is open (or for a few seconds after the last one closes).
     ///   ENABLE / DISABLE → OK
     ///   FEATURES      → OK speaker=&lt;0/1&gt;     (service 1.1.0+; older ones answer ERR; more name=value pairs may follow)
     ///   SET speaker 0|1 → OK                  (the controller speaker switch)
@@ -170,6 +184,7 @@ internal sealed class HapticLinkService : IDisposable
 
     private void Serve(NamedPipeServerStream pipe)
     {
+        bool attached = false;
         using (pipe)
         {
             try
@@ -177,9 +192,26 @@ internal sealed class HapticLinkService : IDisposable
                 using var reader = new StreamReader(pipe, new UTF8Encoding(false), false, 1024, leaveOpen: true);
                 using var writer = new StreamWriter(pipe, new UTF8Encoding(false), 1024, leaveOpen: true) { AutoFlush = true, NewLine = "\n" };
                 while (pipe.IsConnected && !_cts.IsCancellationRequested && reader.ReadLine() is { } line)
+                {
+                    if (!attached && line.Trim().Equals("ATTACH", StringComparison.OrdinalIgnoreCase))
+                    {
+                        attached = true;
+                        lock (_gate) if (_attached++ == 0) Log.Write("HapticLink app attached");
+                        _wake.Set();
+                    }
                     writer.WriteLine(Handle(line, pipe));
+                }
             }
             catch (IOException) { } // the app went away
+            finally
+            {
+                if (attached)
+                {
+                    lock (_gate)
+                        if (--_attached == 0) { _detachedAt = DateTime.UtcNow; Log.Write("HapticLink app detached"); }
+                    _wake.Set();
+                }
+            }
         }
     }
 
@@ -204,6 +236,8 @@ internal sealed class HapticLinkService : IDisposable
                 Settings.Enabled = parts[0].Equals("ENABLE", StringComparison.OrdinalIgnoreCase);
                 Log.Write($"turned {(Settings.Enabled ? "on" : "off")} by an app");
                 _wake.Set();
+                return "OK";
+            case "ATTACH":
                 return "OK";
             case "FEATURES":
                 return $"OK speaker={(Settings.Speaker ? 1 : 0)}";
