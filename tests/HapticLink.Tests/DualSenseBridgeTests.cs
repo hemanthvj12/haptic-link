@@ -152,4 +152,22 @@ public class DualSenseBridgeTests
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "HapticLink.sln"))) dir = dir.Parent;
         return dir?.FullName ?? throw new InvalidOperationException("repository root not found");
     }
+
+    [Fact]
+    public void HidHide_undo_survives_a_crash_file_from_an_older_service()
+    {
+        var undo = new HidHideControl.Undo(@"HID\PAD", Unhide: false, CloakOff: true, InverseOn: true);
+        Assert.Equal(undo, HidHideControl.Undo.Deserialize(undo.Serialize()));
+        // Services before 1.2.1 wrote three lines (no inverse mode).
+        Assert.Equal(new HidHideControl.Undo(@"HID\PAD", true, false, false), HidHideControl.Undo.Deserialize(@"HID\PAD" + "\n1\n0\n"));
+        Assert.False(new HidHideControl.Undo(@"HID\PAD", false, false).Changed);
+        Assert.Null(HidHideControl.Undo.Deserialize(""));
+    }
+
+    [Fact]
+    public void Instance_id_comes_from_the_device_path()
+    {
+        const string path = @"\\?\hid#{00001124-0000-1000-8000-00805f9b34fb}_vid&0002054c_pid&0ce6#b&311692c8&11&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+        Assert.Equal(@"HID\{00001124-0000-1000-8000-00805F9B34FB}_VID&0002054C_PID&0CE6\B&311692C8&11&0000", PadConnection.InstanceIdOf(path));
+    }
 }

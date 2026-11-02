@@ -16,7 +16,7 @@ internal sealed class Bridge : IDisposable
     private const string Enumerator = "VID_054C&PID_0CE6&MI_03"; // Steam and SDL match a pad's views by this token
     private const string Instance = "HLINK_PAD_0";
 
-    private readonly PadConnection _pad;
+    private PadConnection _pad = null!; // set in Start before the bridge is handed out
     private readonly byte[] _usbInput = new byte[DualSenseReports.UsbInputLength];
     private readonly CancellationTokenSource _cts = new();
     private SafeFileHandle? _sectionHandle;
@@ -36,6 +36,8 @@ internal sealed class Bridge : IDisposable
     /// <summary>The speaker could be set up (Steam's driver is installed); recording it may still be failing.</summary>
     public bool HasSpeaker => _haptics is not null;
     public string? HapticsProblem => _haptics?.Problem;
+    /// <summary>Why games may still see the real pad (HidHide missing, inactive, or the pad couldn't restart); null when hidden.</summary>
+    public string? HidHideProblem { get; private set; }
     public DateTime StartedAt { get; } = DateTime.UtcNow;
     public string Mac => _pad.Mac;
     /// <summary>The pad is still connected and sending (a Bluetooth pad in full mode streams non-stop).</summary>
@@ -43,13 +45,19 @@ internal sealed class Bridge : IDisposable
 
     private static string LeftoverFile => Path.Combine(Log.Folder, "session-undo.txt");
 
-    private Bridge(PadConnection pad) => _pad = pad;
+    private Bridge() { }
 
-    public static Bridge Start(PadConnection pad, SpeakerEndpoint speaker, IReadOnlyCollection<string> allowedExes)
+    /// <summary>Bridges the pad at <paramref name="path"/> (a Bluetooth DualSense's HID path).</summary>
+    public static Bridge Start(string path, SpeakerEndpoint speaker, IReadOnlyCollection<string> allowedExes)
     {
-        var bridge = new Bridge(pad);
+        var bridge = new Bridge();
         try
         {
+            // Hide the real pad first: before the virtual one appears, so games starting now never see two, and before
+            // opening it, so this service is on HidHide's allowed list even when someone else hid the pad already.
+            path = bridge.HideRealPad(path, allowedExes);
+            var pad = bridge._pad = OpenPad(path) ?? throw new IOException("couldn't open the controller (another app may be using it)");
+
             // Calibration and firmware replies (games read them from the virtual pad); reading 0x05 also switches the
             // real pad to full reports.
             var calibration = pad.GetFeature(0x05, 41) ?? throw new IOException("the controller didn't answer");
@@ -57,9 +65,6 @@ internal sealed class Bridge : IDisposable
             bridge.CreateSection(calibration, firmware);
             pad.Report += bridge.OnInput;
             pad.Start();
-            // Hide the real pad before the virtual one appears, so games starting now never see two.
-            bridge._hidHideUndo = HidHideControl.Hide(pad.InstanceId, allowedExes);
-            File.WriteAllText(LeftoverFile, bridge._hidHideUndo.Serialize());
             bridge.CreateDevice();
 
             var release = new byte[DualSenseReports.BtOutputLength];
@@ -82,6 +87,54 @@ internal sealed class Bridge : IDisposable
             bridge.Dispose();
             throw;
         }
+    }
+
+    // Hides the pad with HidHide and makes sure it took: restarts the pad when its visibility changed (what had it open,
+    // Windows' game controller input above all, would keep seeing it) or HidHide's filter isn't attached to it (HidHide
+    // installed while it was connected), then checks the filter is there. Returns the pad's path after a restart.
+    private string HideRealPad(string path, IReadOnlyCollection<string> allowedExes)
+    {
+        var id = PadConnection.InstanceIdOf(path);
+        var hide = HidHideControl.Hide(id, allowedExes);
+        _hidHideUndo = hide.Undo;
+        File.WriteAllText(LeftoverFile, hide.Undo.Serialize());
+        if (hide.Problem is not null) { HidHideProblem = hide.Problem; return path; }
+
+        bool? filtered = DeviceNode.HasDriver(id, "HidHide");
+        if (hide.Undo.Changed || filtered == false)
+        {
+            if (DeviceNode.Restart(id) is { } error)
+            {
+                Log.Write($"HidHide: couldn't restart the controller ({error})");
+                HidHideProblem = $"the real controller couldn't be restarted to hide it ({error}), so games may see two controllers: turn the controller off and on";
+                return path;
+            }
+            path = WaitForPad(id) ?? throw new IOException("the controller didn't come back after restarting it");
+            filtered = DeviceNode.HasDriver(id, "HidHide");
+            Log.Write($"HidHide: restarted the controller (HidHide attached: {filtered?.ToString() ?? "unknown"})");
+        }
+        if (filtered == false)
+            HidHideProblem = "HidHide isn't active, so games see two controllers: restart Windows (HidHide needs that after installing)";
+        return path;
+    }
+
+    // Right after a restart the path can be listed a moment before it opens.
+    private static PadConnection? OpenPad(string path)
+    {
+        for (int attempt = 0; ; attempt++)
+        {
+            if (PadConnection.TryOpen(path) is { } pad) return pad;
+            if (attempt == 8) return null;
+            Thread.Sleep(250);
+        }
+    }
+
+    private static string? WaitForPad(string instanceId)
+    {
+        for (var until = DateTime.UtcNow.AddSeconds(8); DateTime.UtcNow < until; Thread.Sleep(250))
+            if (PadConnection.FindBluetoothPads().FirstOrDefault(p => PadConnection.InstanceIdOf(p) == instanceId) is { } path)
+                return path;
+        return null;
     }
 
     /// <summary>The tray's speaker switch, applied every second while the bridge runs.</summary>
@@ -184,14 +237,17 @@ internal sealed class Bridge : IDisposable
         var channel = _channel;
         _channel = null;
         _pump?.Join(500);
-        if (_hidHideUndo is not null)
+        if (_pad is not null)
+        {
+            _pad.Report -= OnInput;
+            _pad.Dispose();
+        }
+        if (_hidHideUndo is not null) // after closing the pad: restoring restarts it
         {
             HidHideControl.Restore(_hidHideUndo);
             _hidHideUndo = null;
             try { File.Delete(LeftoverFile); } catch (IOException) { }
         }
-        _pad.Report -= OnInput;
-        _pad.Dispose();
         channel?.Dispose();
         _sectionHandle?.Dispose();
         Log.Write("bridge stopped");
@@ -206,6 +262,7 @@ internal sealed class Bridge : IDisposable
             if (HidHideControl.Undo.Deserialize(File.ReadAllText(LeftoverFile)) is { } undo)
             {
                 Log.Write("undoing a session that wasn't ended");
+                DeviceNode.Enable(undo.InstanceId); // in case it ended halfway through restarting the pad
                 HidHideControl.Restore(undo);
             }
             File.Delete(LeftoverFile);

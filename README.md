@@ -31,7 +31,7 @@ Games only use a DualSense's **haptics, adaptive triggers, rumble and light bar*
 - The HapticLink service reads your controller over Bluetooth and feeds its buttons, sticks and motion to the virtual one; what games send back (triggers, rumble, lights) is converted into Bluetooth reports.
 - Haptics are audio: games play them on the controller's speaker channels 3 and 4. HapticLink records that audio, resamples it to 3 kHz and streams it to the controller in Bluetooth haptics reports, about 94 a second.
 - The controller's speaker sound is on channels 1 and 2. Once a game plays something there, HapticLink encodes it as Opus (the format the controller expects over Bluetooth) and sends it in the same reports as the haptics.
-- HidHide hides the real controller from games while the feature is on, and the service puts it back when it stops (also after a crash, at its next start).
+- HidHide hides the real controller from games while the feature is on, and the service puts it back when it stops (also after a crash, at its next start). HidHide only hides a controller from apps that open it afterwards, so the controller is restarted for a moment (about a second) when HapticLink hides it and when it gives it back. If games could still see it, the tray menu says why.
 
 ## Uninstall
 

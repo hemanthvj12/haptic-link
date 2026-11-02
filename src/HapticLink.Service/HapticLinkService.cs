@@ -79,13 +79,11 @@ internal sealed class HapticLinkService : IDisposable
             if (paths.Count == 0) { Set("waiting", "Waiting for a DualSense connected over Bluetooth."); return; }
             if (DateTime.UtcNow < _retryAt) return;
 
-            var pad = PadConnection.TryOpen(paths[0]);
-            if (pad is null) { Fail("couldn't open the controller (another app may be using or hiding it)"); return; }
             try
             {
                 var allowed = new List<string> { Environment.ProcessPath! };
                 allowed.AddRange(_readers);
-                _bridge = Bridge.Start(pad, _speaker, allowed);
+                _bridge = Bridge.Start(paths[0], _speaker, allowed);
                 _bridge.ApplyFeatures(Settings.Speaker);
                 ShowOn(_bridge);
             }
@@ -99,14 +97,18 @@ internal sealed class HapticLinkService : IDisposable
     // Checked every second while on, so the message follows haptics recording as it starts, fails or recovers.
     private void ShowOn(Bridge bridge)
     {
+        string message;
         if (bridge.HasHaptics)
-            Set("on", $"On: games see a wired DualSense (haptics, adaptive triggers, rumble, lights{(Settings.Speaker ? ", speaker" : "")}).");
+            message = $"On: games see a wired DualSense (haptics, adaptive triggers, rumble, lights{(Settings.Speaker ? ", speaker" : "")}).";
         else if (!bridge.HasSpeaker) // set up again at the next start: turning HapticLink off and on retries it
-            Set("on", $"On without haptics: {_speaker.Problem ?? "Steam's streaming speaker driver isn't installed"} (triggers, rumble and lights work).");
+            message = $"On without haptics: {_speaker.Problem ?? "Steam's streaming speaker driver isn't installed"} (triggers, rumble and lights work).";
         else if (DateTime.UtcNow - bridge.StartedAt < TimeSpan.FromSeconds(10)) // a first failure often clears in a second
-            Set("on", "On: games see a wired DualSense; starting haptics.");
+            message = "On: games see a wired DualSense; starting haptics.";
         else
-            Set("on", $"On without haptics: {bridge.HapticsProblem ?? "couldn't record the controller's speaker"}. Retrying; triggers, rumble and lights work.");
+            message = $"On without haptics: {bridge.HapticsProblem ?? "couldn't record the controller's speaker"}. Retrying; triggers, rumble and lights work.";
+        // Apps (the tray, PeripheralHub) show the message as it is; "HidHide" in it tells the tray the real pad isn't hidden.
+        if (bridge.HidHideProblem is { } hidHide) message += $" Warning: {hidHide}.";
+        Set("on", message);
     }
 
     private void Fail(string message)

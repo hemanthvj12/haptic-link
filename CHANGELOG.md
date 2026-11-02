@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1 (2026-11-02)
+- Fixed: games and gamepad testers could see two controllers, the real one not responding, even with HidHide installed (issue #1). HidHide only hides a controller from apps that open it afterwards, and Windows' own game controller input had already opened it. HapticLink now restarts the controller for a moment after hiding it (and again when it stops, so games see it once more), then checks that HidHide is really attached to it.
+- If games can still see the real controller, the tray says why: HidHide isn't installed, HidHide needs a Windows restart after installing, or the controller couldn't be restarted (then turn it off and on).
+- Works with HidHide's inverse mode turned on (it's turned off while HapticLink runs and put back afterwards), and when another app (DSX, DS4Windows) had already hidden the controller without letting HapticLink's service see it.
+- Service 1.2.1: after updating, HapticLink asks once for administrator rights to update its background service.
+
 ## 1.2.0 (2026-11-02)
 - HapticLink only works while its tray app runs: Exit (or the app not starting) turns it off, and games get the controller back as it is. The switch is remembered for the next start.
 - PeripheralHub hides its "Full DualSense features" switch while the HapticLink app isn't running.

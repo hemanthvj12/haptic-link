@@ -146,6 +146,8 @@ internal sealed class TrayApp : ApplicationContext
         _icon.Icon = s?.State == "on" ? _activeIcon : _idleIcon;
         var tip = !running ? "HapticLink: not set up" : s!.State switch
         {
+            // The service adds a "Warning: … HidHide …" when games can still see the real controller.
+            "on" when s.Message.Contains("HidHide", StringComparison.Ordinal) => "HapticLink: on (real controller not hidden)",
             "on" => s.Haptics ? "HapticLink: on" : "HapticLink: on (no haptics)",
             "waiting" => "HapticLink: waiting for a DualSense",
             "off" => "HapticLink: off",

@@ -36,10 +36,16 @@ internal sealed class PadConnection : IDisposable
         _writeBuffer = new byte[outputLength];
         Mac = mac;
         IsEdge = edge;
+        InstanceId = InstanceIdOf(path);
+    }
+
+    /// <summary>The HID instance id of a device path, upper case as Windows lists them.</summary>
+    public static string InstanceIdOf(string path)
+    {
         var p = path.StartsWith(@"\\?\", StringComparison.Ordinal) ? path[4..] : path;
         int guid = p.LastIndexOf("#{", StringComparison.Ordinal);
         if (guid > 0) p = p[..guid];
-        InstanceId = p.Replace('#', '\\').ToUpperInvariant();
+        return p.Replace('#', '\\').ToUpperInvariant();
     }
 
     /// <summary>HID paths of DualSense / DualSense Edge pads connected over Bluetooth.</summary>
