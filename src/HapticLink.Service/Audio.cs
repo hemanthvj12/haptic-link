@@ -98,6 +98,18 @@ internal static class Audio
         Log.Write($"{endpoint} had become the default {(capture ? "recording" : "playback")} device; put the previous one back");
     }
 
+    /// <summary>
+    /// Puts <paramref name="before"/> back as the default if any other endpoint took it meanwhile (binding Steam's driver
+    /// again can give several devnodes new endpoints at once). Does nothing when it's gone or no longer active.
+    /// </summary>
+    public static void RestoreDefault(string? before, bool capture)
+    {
+        if (before is null || DefaultId(capture) is not { } now || now == before || State(before) != 1) return;
+        var policy = (IPolicyConfig)ComObjects.Create(ComObjects.PolicyConfigClient);
+        for (int role = 0; role < 3; role++) policy.SetDefaultEndpoint(before, role);
+        Log.Write($"{now} had become the default {(capture ? "recording" : "playback")} device; put the previous one back");
+    }
+
     /// <summary>Whether the endpoint's property store already returns this value.</summary>
     public static bool Served(string id, AudioDevices.StampItem item)
     {

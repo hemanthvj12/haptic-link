@@ -75,6 +75,9 @@ internal sealed class SpeakerEndpoint
     private static string? Ensure(out string? problem)
     {
         problem = null;
+        // Taken first: binding Steam's driver gives every devnode that lost it (Steam's, other apps') a fresh endpoint,
+        // and Windows made one of those the default output (2026-11-02).
+        string? before = Audio.DefaultId(capture: false);
         string? inf = FindSteamInf(SteamHardwareId);
         if (inf is null)
         {
@@ -90,7 +93,6 @@ internal sealed class SpeakerEndpoint
             // Devnodes left without it (ours, Steam's, other apps') get it back before ours is looked for.
             Devnodes.BindDriver(SteamHardwareId, inf);
         }
-        string? before = Audio.DefaultId(capture: false);
         string instance = Devnodes.FindMarked(MediaClass, MarkerValue, 0) ?? Readopt() ?? Devnodes.CreateRootDevnode(MediaClass, "MEDIA",
             "HapticLink Pad Audio", SteamHardwareId, MarkerValue, 0);
         Remember(instance);
@@ -106,7 +108,7 @@ internal sealed class SpeakerEndpoint
         if (Devnodes.SyncDescription(@"SWD\MMDEVAPI\" + endpoint) is { } old)
             Log.Write($"speaker endpoint: Sound settings' name brought up to date (was \"{old}\")");
         Audio.SetVisible(endpoint, false);
-        Audio.KeepDefault(before, endpoint, capture: false);
+        Audio.RestoreDefault(before, capture: false);
         Log.Write($"speaker endpoint ready: {endpoint} ({instance}), stamps served: {served}");
         return endpoint;
     }
