@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.2 (unreleased)
+## 1.2.2 (2026-11-02)
 - Setup offers to install HidHide when it's missing: one question, then HapticLink downloads HidHide 1.5.230 from Nefarius's GitHub release, checks it's the exact file, and installs it within the same administrator prompt. Said no? The tray menu has *Install HidHide (admin prompt)…* while it's missing.
 - Service 1.2.2: after updating, HapticLink asks once for administrator rights to update its background service (and offers HidHide then, if it's missing).
 
