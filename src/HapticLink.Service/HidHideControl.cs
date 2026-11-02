@@ -64,6 +64,30 @@ internal static class HidHideControl
     }
 
     /// <summary>
+    /// While the pad is bridged: is it still hidden as <see cref="Hide"/> left it? Another app can change HidHide's
+    /// settings meanwhile (DSX turns cloaking off when it closes; anyone can edit the lists), and then games opening the pad
+    /// see it twice. Returns what's wrong, or null. Read-only; <c>REPAIR</c> applies <see cref="Hide"/> again.
+    /// </summary>
+    public static string? Check(string instanceId, string serviceExe)
+    {
+        if (HidHide.FindCli() is not { } cli) return "HidHide isn't installed";
+        var (exit, state) = HidHide.RunCli(cli, "--cloak-state --app-list --dev-list");
+        if (exit != 0) return null; // unreadable for a moment (HidHide updating): not proof of anything
+        var lines = state.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (lines.Contains("--cloak-off")) return "HidHide's hiding was turned off";
+        if (!lines.Any(l => l.StartsWith("--dev-hide ", StringComparison.Ordinal) &&
+                            string.Equals(l[11..].Trim('"'), instanceId, StringComparison.OrdinalIgnoreCase)))
+            return "the controller was taken off HidHide's list";
+        if (!lines.Any(l => l.StartsWith("--app-reg ", StringComparison.Ordinal) &&
+                            string.Equals(l[10..].Trim('"'), serviceExe, StringComparison.OrdinalIgnoreCase)))
+            return "HapticLink was taken off HidHide's allowed apps";
+        if (HidHide.RunCli(cli, "--inv-state").Output.Contains("--inv-on", StringComparison.Ordinal))
+            return "HidHide's inverse mode was turned on";
+        if (DeviceNode.HasDriver(instanceId, "HidHide") == false) return "HidHide isn't attached to the controller";
+        return null;
+    }
+
+    /// <summary>
     /// Undoes what <see cref="Hide"/> changed and restarts the pad when it's still connected: Windows' game controller
     /// input couldn't open it while hidden, so games wouldn't see it again until it reconnects.
     /// </summary>

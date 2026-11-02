@@ -11,18 +11,20 @@ Games only use a DualSense's **haptics, adaptive triggers, rumble and light bar*
 ## Install
 
 1. Download `HapticLink-win-Setup.exe` from the [latest release](https://github.com/hemanthvj12/haptic-link/releases/latest) and run it. Windows may warn that it's from an unknown publisher (the installer isn't code-signed): choose *More info → Run anyway*.
-2. On its first start HapticLink asks once for administrator rights to finish setting up (it installs its background service and the virtual controller driver).
+2. On its first start HapticLink opens its setup window. It checks for HidHide and Steam (below) and shows a green tick or a red cross for each; install what's missing, choose *Check again*, then *Install* (one administrator prompt for its background service and virtual controller driver).
 3. Pair your DualSense over Bluetooth if you haven't. HapticLink's tray icon turns blue when it's active.
 
-**You also need:**
-- **HidHide** ([Nefarius](https://github.com/nefarius/HidHide/releases)), which hides the real controller from games so they only use the wired one HapticLink gives them (otherwise games drive both and triggers feel wrong). If it isn't installed, HapticLink's setup offers to download and install it for you (or use *Install HidHide…* in the tray menu later).
-- **Steam**, for haptics: HapticLink uses Steam's *Streaming Speakers* audio driver as the controller's speaker, and installs that driver from your Steam folder if Steam hasn't yet (you don't need to have used Remote Play, or to keep Steam running). Without Steam, triggers, rumble and lights still work, and the tray menu has a *Get Steam* link.
+**You also need** (both free; HapticLink doesn't install them for you):
+- **HidHide** ([Nefarius](https://github.com/nefarius/HidHide/releases)), which hides the real controller from games so they only use the wired one HapticLink gives them (otherwise games drive both and triggers feel wrong).
+- **Steam**, for haptics: HapticLink uses Steam's *Streaming Speakers* audio driver as the controller's speaker, and installs that driver from your Steam folder if Steam hasn't yet (you don't need to have used Remote Play, or to keep Steam running).
 
 ## Using it
 
 - Click the tray icon for the menu: status, the **Full DualSense features** switch, the **Controller speaker** switch, *Start with Windows*, updates, the log folder.
 - The controller speaker is on by default. In Windows' Sound settings it's listed as *DualSense Controller (HapticLink)*; games find it by themselves, so you don't need to pick it. If haptics ever stutter while the controller plays sound, try turning the speaker off.
 - The switch is remembered. HapticLink only works while its tray app runs: Exit turns it off (games get the controller back as it is) until you start HapticLink again.
+- If HidHide or Steam's speaker driver is removed later, HapticLink stays off and opens its setup window to show what's missing; it turns back on by itself once both are there again.
+- If games can ever see your controller twice (double input, for example after another app changed HidHide's settings), HapticLink turns off and its setup window offers **Repair**, which hides the real controller again.
 - While it's active, only the virtual controller is visible to games and other apps. Apps that need the real one (for example PeripheralHub for its battery reading) are let through automatically.
 
 ## How it works

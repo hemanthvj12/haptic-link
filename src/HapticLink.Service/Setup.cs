@@ -12,7 +12,7 @@ namespace HapticLink.Service;
 /// The app ships a "service" folder (this exe, HapticLinkPadHost.dll, driver\HapticLinkPad.inf/.dll/.cat/.cer). Setup
 /// copies it to %ProgramFiles%\HapticLink\Service (admins-only: a SYSTEM service runs from it; also outside the app's
 /// per-user folder that updates replace), trusts the driver's certificate, adds the driver to Windows' driver store,
-/// installs HidHide when asked (see <see cref="HidHideInstaller"/>), puts the service on HidHide's allowed list and
+/// puts the service on HidHide's allowed list, adds Steam's speaker driver when Steam has it, and
 /// installs + starts the service.
 /// </summary>
 internal static class Setup
@@ -21,14 +21,21 @@ internal static class Setup
     public static string InstallDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "HapticLink", "Service");
     private static string ServiceExe => Path.Combine(InstallDir, "HapticLink.Service.exe");
 
-    /// <param name="installHidHide">The user agreed in the app to install HidHide if it's missing.</param>
-    public static int Install(bool installHidHide = false)
+    /// <summary>
+    /// The steps, in order, as the app's setup window shows them. With <paramref name="progressFile"/> each step's start and
+    /// end is appended there as "step|state|message" (state: run, ok, fail, skip), which the app reads while this runs
+    /// elevated: an elevated process started with ShellExecute can't hand its output back otherwise.
+    /// HidHide and Steam are the user's to install (the app shows whether they are); setup only sets up what's there.
+    /// </summary>
+    public static int Install(string? progressFile = null)
     {
         Log.Write("setup: starting");
-        string source = AppContext.BaseDirectory;
-        StopService();
-        CopyFiles(source, InstallDir);
+        var progress = new Progress(progressFile);
 
+        // 1. HapticLink's files and its virtual controller driver.
+        progress.Start("driver");
+        StopService();
+        CopyFiles(AppContext.BaseDirectory, InstallDir);
         var cer = new X509Certificate2(Path.Combine(InstallDir, "driver", "HapticLinkPad.cer"));
         foreach (var name in new[] { StoreName.Root, StoreName.TrustedPublisher })
         {
@@ -37,28 +44,83 @@ internal static class Setup
             store.Add(cer);
         }
         Log.Write($"setup: trusted the driver certificate {cer.Thumbprint}");
-
         var (exit, output) = Run("pnputil.exe", $"/add-driver \"{Path.Combine(InstallDir, "driver", "HapticLinkPad.inf")}\" /install");
-        if (exit != 0 && exit != 259) { Log.Write($"setup: pnputil failed ({exit}): {output}"); return 3; }
+        if (exit != 0 && exit != 259)
+        {
+            Log.Write($"setup: pnputil failed ({exit}): {output}");
+            return progress.Fail("driver", $"Windows didn't accept the driver (pnputil {exit})", 3);
+        }
         Log.Write("setup: driver added to the driver store");
+        progress.Ok("driver", "Installed");
 
-        if (installHidHide) HidHideInstaller.EnsureInstalled();
-        if (HidHide.FindCli() is { } cli) HidHide.RunCli(cli, $"--app-reg \"{ServiceExe}\"");
+        // 2. HidHide: let the service see the controller it hides, and check HidHide answers.
+        progress.Start("hidhide");
+        if (HidHide.FindCli() is not { } cli) progress.Skip("hidhide", "HidHide isn't installed");
+        else
+        {
+            var (regExit, regOutput) = HidHide.RunCli(cli, $"--app-reg \"{ServiceExe}\"");
+            var (stateExit, _) = HidHide.RunCli(cli, "--cloak-state");
+            if (regExit == 0 && stateExit == 0) progress.Ok("hidhide", "HapticLink may use the controller HidHide hides");
+            else
+            {
+                Log.Write($"setup: HidHide didn't answer ({regExit}/{stateExit}): {regOutput.Trim()}");
+                progress.Fail("hidhide", "HidHide didn't answer: restart Windows, then run setup again");
+            }
+        }
 
+        // 3. The controller speaker haptics go through: Steam's driver, added from Steam's own files if Remote Play never did.
+        progress.Start("speaker");
+        if (AudioDevices.FindSteamInf(@"ROOT\SteamStreamingSpeakers") is not null) progress.Ok("speaker", "Steam's speaker driver is ready");
+        else if (SteamSpeakerDriver.TryAdd() is { } why) progress.Fail("speaker", Capitalize(why));
+        else progress.Ok("speaker", "Added Steam's speaker driver from your Steam folder");
+
+        // 4. The service, which does the work while the tray app runs.
+        progress.Start("service");
         bool exists = ServiceController.GetServices().Any(s => s.ServiceName == ServiceName);
         string binPath = $"\\\"{ServiceExe}\\\" service";
         (exit, output) = exists
             ? Run("sc.exe", $"config {ServiceName} binPath= \"{binPath}\" start= auto")
             : Run("sc.exe", $"create {ServiceName} binPath= \"{binPath}\" start= auto DisplayName= \"HapticLink for DualSense\"");
-        if (exit != 0) { Log.Write($"setup: sc failed ({exit}): {output}"); return 4; }
+        if (exit != 0)
+        {
+            Log.Write($"setup: sc failed ({exit}): {output}");
+            return progress.Fail("service", $"Windows didn't accept the service (sc {exit})", 4);
+        }
         Run("sc.exe", $"description {ServiceName} \"Gives games a virtual wired DualSense driven by your DualSense over Bluetooth, with haptics, adaptive triggers, rumble and lights.\"");
         Run("sc.exe", $"failure {ServiceName} reset= 86400 actions= restart/5000/restart/5000//");
-
-        using var service = new ServiceController(ServiceName);
-        service.Start();
-        service.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(20));
+        try
+        {
+            using var service = new ServiceController(ServiceName);
+            service.Start();
+            service.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(20));
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ServiceProcess.TimeoutException)
+        {
+            Log.Write($"setup: the service didn't start: {ex.Message}");
+            return progress.Fail("service", "The service didn't start; details in %ProgramData%\\HapticLink\\service.log", 5);
+        }
         Log.Write("setup: done, service running");
+        progress.Ok("service", "Running");
         return 0;
+    }
+
+    private static string Capitalize(string text) => text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
+
+    /// <summary>Appends "step|state|message" lines for the app's setup window (nothing without a file).</summary>
+    private sealed class Progress(string? file)
+    {
+        public void Start(string step) => Write(step, "run", "");
+        public void Ok(string step, string message) => Write(step, "ok", message);
+        public void Skip(string step, string message) => Write(step, "skip", message);
+        public void Fail(string step, string message) => Write(step, "fail", message);
+        public int Fail(string step, string message, int exitCode) { Write(step, "fail", message); return exitCode; }
+
+        private void Write(string step, string state, string message)
+        {
+            if (file is null) return;
+            try { File.AppendAllText(file, $"{step}|{state}|{message.Replace('|', '/').Replace('\n', ' ')}\n"); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Log.Write($"setup: progress file: {ex.Message}"); }
+        }
     }
 
     public static int Remove()

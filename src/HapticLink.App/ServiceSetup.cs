@@ -26,42 +26,40 @@ public static class ServiceSetup
     }
 
     /// <summary>
-    /// HidHide (which hides the real controller from games) is installed. Same check as the service: its registry path,
-    /// else the default folder.
+    /// Runs setup elevated (one admin prompt). <paramref name="onStep"/> gets each step's progress as setup reports it
+    /// (step, state run/ok/fail/skip, message), on the calling thread. Returns ok, or an error for the user (null: the
+    /// prompt was cancelled).
     /// </summary>
-    public static bool HidHideInstalled
-    {
-        get
-        {
-            string? root = null;
-            try
-            {
-                using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Nefarius Software Solutions e.U.\HidHide");
-                root = key?.GetValue("Path") as string;
-            }
-            catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException) { }
-            root ??= Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Nefarius Software Solutions", "HidHide");
-            return File.Exists(Path.Combine(root, "x64", "HidHideCLI.exe"));
-        }
-    }
-
-    /// <summary>
-    /// Runs setup elevated (one admin prompt); with <paramref name="installHidHide"/> it also downloads and installs HidHide
-    /// if it's missing. Returns ok, or an error for the user (null: prompt cancelled).
-    /// </summary>
-    public static async Task<(bool Ok, string? Error)> RunAsync(bool installHidHide = false)
+    public static async Task<(bool Ok, string? Error)> RunAsync(Action<string, string, string>? onStep = null)
     {
         if (BundledVersion is null) return (false, "this copy of HapticLink doesn't include the service");
+        // Setup appends "step|state|message" lines here; it runs elevated, so its output can't come back any other way.
+        var progressFile = Path.Combine(Path.GetTempPath(), $"HapticLink-setup-{Guid.NewGuid():N}.txt");
+        int seen = 0;
+        void ReadProgress()
+        {
+            string[] lines;
+            try { lines = File.Exists(progressFile) ? File.ReadAllLines(progressFile) : []; }
+            catch (IOException) { return; } // being written; next time
+            for (; seen < lines.Length; seen++)
+                if (lines[seen].Split('|', 3) is [var step, var state, var message]) onStep?.Invoke(step, state, message);
+        }
         try
         {
-            using var p = Process.Start(new ProcessStartInfo(BundledService, installHidHide ? "setup --install-hidhide" : "setup")
+            using var p = Process.Start(new ProcessStartInfo(BundledService, $"setup --progress \"{progressFile}\"")
                 { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden })!;
-            await p.WaitForExitAsync();
+            while (!p.HasExited)
+            {
+                ReadProgress();
+                await Task.Delay(150);
+            }
+            ReadProgress();
             AppLog.Write($"setup exited with {p.ExitCode}");
             if (p.ExitCode != 0) return (false, $"setup failed (code {p.ExitCode}); details in %ProgramData%\\HapticLink\\service.log");
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223) { return (false, null); }
         catch (Win32Exception ex) { return (false, ex.Message); }
+        finally { try { File.Delete(progressFile); } catch (IOException) { } }
         for (int i = 0; i < 20; i++)
         {
             if (await Task.Run(() => ServiceClient.Hello()) is not null) return (true, null);

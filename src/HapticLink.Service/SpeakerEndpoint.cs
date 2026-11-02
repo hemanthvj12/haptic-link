@@ -18,28 +18,63 @@ internal sealed class SpeakerEndpoint
 
     private readonly object _gate = new();
     private Task<string?>? _ensure;
-    private volatile string? _problem;
+    private volatile string? _problem, _missingDriver;
+    private DateTime _attemptAt = DateTime.MinValue;
 
     /// <summary>Why there's no speaker (so no haptics), for the status message; null when it's ready.</summary>
     public string? Problem => _problem;
+
+    /// <summary>
+    /// Why Steam's speaker driver is missing and couldn't be added (Steam not installed, …); null when it's there. A missing
+    /// requirement: HapticLink won't turn on without it (owner, 2026-11-02). Other speaker trouble only costs haptics.
+    /// </summary>
+    public string? MissingDriver => _missingDriver;
+
+    /// <summary>The first set-up (or a retry) is still running, so <see cref="MissingDriver"/> isn't known yet.</summary>
+    public bool Checking { get { lock (_gate) return _ensure is { IsCompleted: false }; } }
 
     public void EnsureInBackground()
     {
         lock (_gate) _ensure ??= Task.Run(() =>
         {
+            _attemptAt = DateTime.UtcNow;
             try
             {
-                var id = Ensure(out var problem);
+                var id = Ensure(out var problem, out bool missingDriver);
                 _problem = problem;
+                _missingDriver = missingDriver ? problem : null;
                 return id;
             }
             catch (Exception ex)
             {
                 Log.Write($"speaker endpoint: {ex}");
                 _problem = $"couldn't set up the controller's speaker ({ex.Message})";
+                _missingDriver = null;
                 return null;
             }
         });
+    }
+
+    /// <summary>
+    /// Tries again (adding the driver from Steam's files) when the driver was missing: at most every 15 s, or now when
+    /// <paramref name="now"/> (the setup window's Check again). Also notices the driver going away after it was set up.
+    /// </summary>
+    public void Recheck(bool now = false)
+    {
+        lock (_gate)
+        {
+            if (_ensure is not { IsCompleted: true }) return;
+            if (_missingDriver is null)
+            {
+                // Set up before: is the driver still there? (Cheap: read from the devnode that uses it.)
+                if (_ensure.Result is null || FindSteamInf(SteamHardwareId) is not null) return;
+                Log.Write("speaker endpoint: Steam's speaker driver is gone");
+                _missingDriver = _problem = "Steam's speaker driver was removed";
+            }
+            else if (!now && DateTime.UtcNow - _attemptAt < TimeSpan.FromSeconds(15)) return;
+            _ensure = null;
+        }
+        EnsureInBackground();
     }
 
     /// <summary>Shows the endpoint for a starting pad; null when there's none (no Steam driver: no haptics).</summary>
@@ -72,9 +107,10 @@ internal sealed class SpeakerEndpoint
     /// Finds or makes the devnode, binds Steam's driver (adding it from Steam's own files when Remote Play never installed
     /// it), stamps the endpoint; returns its id, or null with the reason.
     /// </summary>
-    private static string? Ensure(out string? problem)
+    private static string? Ensure(out string? problem, out bool missingDriver)
     {
         problem = null;
+        missingDriver = false;
         // Taken first: binding Steam's driver gives every devnode that lost it (Steam's, other apps') a fresh endpoint,
         // and Windows made one of those the default output (2026-11-02).
         string? before = Audio.DefaultId(capture: false);
@@ -87,6 +123,7 @@ internal sealed class SpeakerEndpoint
             if (inf is null)
             {
                 problem = why ?? "Steam's streaming speaker driver isn't installed";
+                missingDriver = true;
                 Log.Write($"speaker endpoint: {problem}; no haptics");
                 return null;
             }

@@ -40,6 +40,8 @@ internal sealed class Bridge : IDisposable
     public string? HidHideProblem { get; private set; }
     public DateTime StartedAt { get; } = DateTime.UtcNow;
     public string Mac => _pad.Mac;
+    /// <summary>The real pad's HID instance id (what HidHide hides).</summary>
+    public string InstanceId => _pad.InstanceId;
     /// <summary>The pad is still connected and sending (a Bluetooth pad in full mode streams non-stop).</summary>
     public bool Alive => !_pad.IsClosed && DateTime.UtcNow - _pad.LastReportAt < TimeSpan.FromSeconds(4);
 
@@ -48,14 +50,15 @@ internal sealed class Bridge : IDisposable
     private Bridge() { }
 
     /// <summary>Bridges the pad at <paramref name="path"/> (a Bluetooth DualSense's HID path).</summary>
-    public static Bridge Start(string path, SpeakerEndpoint speaker, IReadOnlyCollection<string> allowedExes)
+    /// <param name="forceRestart">Restart the real pad even when HidHide's settings were right already (Repair).</param>
+    public static Bridge Start(string path, SpeakerEndpoint speaker, IReadOnlyCollection<string> allowedExes, bool forceRestart = false)
     {
         var bridge = new Bridge();
         try
         {
             // Hide the real pad first: before the virtual one appears, so games starting now never see two, and before
             // opening it, so this service is on HidHide's allowed list even when someone else hid the pad already.
-            path = bridge.HideRealPad(path, allowedExes);
+            path = bridge.HideRealPad(path, allowedExes, forceRestart);
             var pad = bridge._pad = OpenPad(path) ?? throw new IOException("couldn't open the controller (another app may be using it)");
 
             // Calibration and firmware replies (games read them from the virtual pad); reading 0x05 also switches the
@@ -92,7 +95,7 @@ internal sealed class Bridge : IDisposable
     // Hides the pad with HidHide and makes sure it took: restarts the pad when its visibility changed (what had it open,
     // Windows' game controller input above all, would keep seeing it) or HidHide's filter isn't attached to it (HidHide
     // installed while it was connected), then checks the filter is there. Returns the pad's path after a restart.
-    private string HideRealPad(string path, IReadOnlyCollection<string> allowedExes)
+    private string HideRealPad(string path, IReadOnlyCollection<string> allowedExes, bool forceRestart)
     {
         var id = PadConnection.InstanceIdOf(path);
         var hide = HidHideControl.Hide(id, allowedExes);
@@ -101,12 +104,12 @@ internal sealed class Bridge : IDisposable
         if (hide.Problem is not null) { HidHideProblem = hide.Problem; return path; }
 
         bool? filtered = DeviceNode.HasDriver(id, "HidHide");
-        if (hide.Undo.Changed || filtered == false)
+        if (hide.Undo.Changed || filtered == false || forceRestart)
         {
             if (DeviceNode.Restart(id) is { } error)
             {
                 Log.Write($"HidHide: couldn't restart the controller ({error})");
-                HidHideProblem = $"the real controller couldn't be restarted to hide it ({error}), so games may see two controllers: turn the controller off and on";
+                HidHideProblem = $"HidHide couldn't hide the controller: it couldn't be restarted ({error}). Turn the controller off and on, then choose Repair";
                 return path;
             }
             path = WaitForPad(id) ?? throw new IOException("the controller didn't come back after restarting it");
@@ -114,7 +117,7 @@ internal sealed class Bridge : IDisposable
             Log.Write($"HidHide: restarted the controller (HidHide attached: {filtered?.ToString() ?? "unknown"})");
         }
         if (filtered == false)
-            HidHideProblem = "HidHide isn't active, so games see two controllers: restart Windows (HidHide needs that after installing)";
+            HidHideProblem = "HidHide couldn't hide the controller: HidHide isn't active yet. Restart Windows (HidHide needs that after installing), then choose Repair";
         return path;
     }
 

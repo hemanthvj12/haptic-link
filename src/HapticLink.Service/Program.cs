@@ -6,7 +6,7 @@ namespace HapticLink.Service;
 /// Entry point. The same exe is:
 ///   service   the Windows service (what the SCM starts)
 ///   console   the same in a console window, for development (run elevated)
-///   setup     one-time setup, run elevated by the app (see Setup.cs); --install-hidhide also installs HidHide
+///   setup     one-time setup, run elevated by the app (see Setup.cs); --progress &lt;file&gt; reports its steps
 ///   remove    undoes the setup, run elevated by the app's uninstaller
 /// </summary>
 public static class Program
@@ -29,11 +29,11 @@ public static class Program
                     }
                     return 0;
                 case "setup":
-                    return Setup.Install(installHidHide: args.Contains("--install-hidhide"));
+                    return Setup.Install(args.SkipWhile(a => a != "--progress").Skip(1).FirstOrDefault());
                 case "remove":
                     return Setup.Remove();
                 default:
-                    Console.Error.WriteLine("usage: HapticLink.Service service | console | setup [--install-hidhide] | remove");
+                    Console.Error.WriteLine("usage: HapticLink.Service service | console | setup [--progress <file>] | remove");
                     return 1;
             }
         }

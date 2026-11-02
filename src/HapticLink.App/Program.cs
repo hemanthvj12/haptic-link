@@ -6,6 +6,7 @@ namespace HapticLink.App;
 /// Entry point. Velopack (installer/updater) runs first: Setup and the uninstaller start the exe with its own arguments,
 /// run the matching hook and exit. It also applies a downloaded update on startup. One copy runs at a time.
 ///   --write-icon &lt;file.ico&gt;   writes the app icon (used once to make Assets\app.ico)
+///   --setup                    opens only the setup window
 /// </summary>
 public static class Program
 {
@@ -18,6 +19,13 @@ public static class Program
             .Run();
 
         if (args is ["--write-icon", var path]) { IconMaker.WriteIco(path); return 0; }
+        if (args is ["--setup"])
+        {
+            // The setup window on its own (also while the tray app runs): for checking it, or setting up again by hand.
+            ApplicationConfiguration.Initialize();
+            Application.Run(new SetupWindow(required: false));
+            return 0;
+        }
 
         using var single = new Mutex(true, @"Local\HapticLink.App", out bool first);
         if (!first) return 0;

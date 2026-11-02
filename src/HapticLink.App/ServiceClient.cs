@@ -4,7 +4,7 @@ using System.Text;
 namespace HapticLink.App;
 
 /// <summary>What the service says about itself (STATUS).</summary>
-/// <param name="State">off, waiting, starting, on, error.</param>
+/// <param name="State">closed, off, waiting, starting, on, error (a missing requirement: the message starts "Needs setup: ").</param>
 public sealed record ServiceStatus(string State, bool Enabled, bool Haptics, string ControllerMac, string Message);
 
 /// <summary>
@@ -33,6 +33,21 @@ public static class ServiceClient
 
     /// <summary>Turns a feature ("speaker") on or off.</summary>
     public static bool SetFeature(string name, bool on) => Ask($"SET {name} {(on ? 1 : 0)}") is not null;
+
+    /// <summary>The service's STATUS message when a requirement (HidHide, Steam's speaker driver) is missing starts so.</summary>
+    public const string NeedsSetup = "Needs setup: ";
+
+    /// <summary>Asks the service to look for HidHide and Steam's speaker driver again now (service 1.2.3+).</summary>
+    public static void Recheck() => Ask("RECHECK");
+
+    /// <summary>After <see cref="NeedsSetup"/>: double input (HidHide isn't hiding the real controller), which Repair fixes.</summary>
+    public const string HidHideBroken = "HidHide isn't hiding the controller: ";
+
+    /// <summary>Tells the service the real controller is in Windows' game controller list while it bridges.</summary>
+    public static void ReportDoubleInput() => Ask("DOUBLE-INPUT");
+
+    /// <summary>Has the service hide the real controller again and restart it (service 1.2.3+).</summary>
+    public static bool Repair() => Ask("REPAIR") is not null;
 
     /// <summary>
     /// Holds an ATTACH connection open for as long as this app runs: the service only bridges while the app is running,

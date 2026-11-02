@@ -13,15 +13,11 @@ internal sealed class TrayApp : ApplicationContext
     private readonly Icon _activeIcon, _idleIcon;
     private readonly ContextMenuStrip _menu = new();
     private readonly ToolStripMenuItem _status = new() { Enabled = false };
-    private readonly ToolStripMenuItem _setup = new("Finish setup (admin prompt)…");
-    private readonly ToolStripMenuItem _hidHide = new("Install HidHide (admin prompt)…")
+    private readonly ToolStripMenuItem _setup = new("Set up HapticLink…")
     {
-        ToolTipText = "HidHide (free, by Nefarius) hides the real controller, so games only see HapticLink's and don't drive both.",
+        ToolTipText = "Checks for HidHide and Steam, which HapticLink needs, and installs HapticLink's driver and service.",
     };
-    private readonly ToolStripMenuItem _getSteam = new("Get Steam (for haptics)…")
-    {
-        ToolTipText = "Haptics use Steam's speaker driver. Install Steam and start it once; HapticLink sets up the rest.",
-    };
+    private SetupWindow? _setupWindow;
     private readonly ToolStripMenuItem _toggle = new("Full DualSense features");
     private readonly ToolStripMenuItem _speaker = new("Controller speaker")
     {
@@ -34,7 +30,8 @@ internal sealed class TrayApp : ApplicationContext
     private readonly Updater _updater = new();
     private readonly SynchronizationContext _ui;
     private ServiceStatus? _last;
-    private bool _busy, _setupNeeded;
+    private bool _busy, _setupNeeded, _neededSetup, _reportedDoubleInput;
+    private DateTime? _onSince;
     private readonly IDisposable _attach = ServiceClient.HoldAttached();
 
     public TrayApp()
@@ -44,9 +41,7 @@ internal sealed class TrayApp : ApplicationContext
         _activeIcon = IconMaker.Create(small, active: true);
         _idleIcon = IconMaker.Create(small, active: false);
 
-        _setup.Click += async (_, _) => await RunSetupAsync();
-        _hidHide.Click += async (_, _) => await RunSetupAsync(installHidHide: true);
-        _getSteam.Click += (_, _) => Process.Start(new ProcessStartInfo("https://store.steampowered.com/about/") { UseShellExecute = true });
+        _setup.Click += (_, _) => ShowSetup(WhyOff());
         _toggle.Click += async (_, _) => await ToggleAsync();
         _speaker.Click += async (_, _) => await SetFeatureAsync("speaker", !(_speakerOn ?? true));
         _startup.Click += (_, _) => { try { Startup.Set(!Startup.IsEnabled); } catch (Exception ex) { AppLog.Write($"startup: {ex.Message}"); } Refresh(); };
@@ -60,7 +55,7 @@ internal sealed class TrayApp : ApplicationContext
         var exit = new ToolStripMenuItem("Exit (turns HapticLink off)") { ToolTipText = "Games get the controller back as it is. Starting HapticLink again turns it back on." };
         exit.Click += (_, _) => ExitThread();
 
-        _menu.Items.AddRange([_status, _setup, _hidHide, _getSteam, new ToolStripSeparator(), _toggle, _speaker, new ToolStripSeparator(), _startup, _update, log,
+        _menu.Items.AddRange([_status, _setup, new ToolStripSeparator(), _toggle, _speaker, new ToolStripSeparator(), _startup, _update, log,
             new ToolStripSeparator(), new ToolStripMenuItem($"HapticLink {AppLog.Version}") { Enabled = false }, exit]);
         _menu.Opening += (_, _) => Refresh();
 
@@ -79,35 +74,43 @@ internal sealed class TrayApp : ApplicationContext
         _ = StartupCheckAsync();
     }
 
-    /// <summary>First start (or after an update that changed the service): set up, with one admin prompt.</summary>
+    /// <summary>First start (or after an update that changed the service): the setup window.</summary>
     private async Task StartupCheckAsync()
     {
         _setupNeeded = await Task.Run(ServiceSetup.Needed);
         Refresh();
-        if (_setupNeeded) await RunSetupAsync();
+        if (_setupNeeded) ShowSetup();
         await PollAsync();
     }
 
-    /// <param name="installHidHide">
-    /// Also install HidHide (the tray item). Otherwise, when HidHide is missing, the user is asked first: it's another
-    /// developer's driver, so it's never installed without a yes.
-    /// </param>
-    private async Task RunSetupAsync(bool installHidHide = false)
+    /// <summary>
+    /// Opens the setup window (or brings it forward). Exiting it while the service isn't running at all exits the app
+    /// too: nothing works without setup, and the window comes back at the next start. With a running (older) service the
+    /// app stays, and the menu offers setup again.
+    /// </summary>
+    /// <param name="missing">Why the service won't turn on (a requirement it found missing), shown in the window.</param>
+    private void ShowSetup(string? missing = null)
     {
-        if (_busy) return;
-        _busy = true;
-        Refresh();
-        if (!installHidHide && !ServiceSetup.HidHideInstalled)
-            installHidHide = MessageBox.Show(
-                "HapticLink needs HidHide (free, by Nefarius) to hide your real controller, so games only see HapticLink's " +
-                "controller and don't drive both.\n\nDownload and install HidHide as part of setup?",
-                "HapticLink setup", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
-        var (ok, error) = await ServiceSetup.RunAsync(installHidHide);
-        AppLog.Write($"setup: {(ok ? "done" : error ?? "cancelled")}");
-        _setupNeeded = !ok;
-        _busy = false;
-        if (!ok && error is not null) _status.Text = $"Setup failed: {error}";
-        await PollAsync();
+        if (_setupWindow is { IsDisposed: false })
+        {
+            _setupWindow.Activate();
+            return;
+        }
+        _setupWindow = new SetupWindow(required: _setupNeeded, missing);
+        _setupWindow.FormClosed += async (_, _) =>
+        {
+            bool completed = _setupWindow.Completed;
+            _setupWindow = null;
+            if (completed) _setupNeeded = false;
+            await PollAsync();
+            if (!completed && _last is null)
+            {
+                AppLog.Write("setup exited before HapticLink was set up; exiting");
+                ExitThread();
+            }
+        };
+        _setupWindow.Show();
+        _setupWindow.Activate();
     }
 
     private async Task ToggleAsync()
@@ -136,18 +139,51 @@ internal sealed class TrayApp : ApplicationContext
         _last = await Task.Run(ServiceClient.Status);
         _speakerOn = _last is null ? null : await Task.Run(ServiceClient.SpeakerOn);
         Refresh();
+        // A requirement went missing (HidHide or Steam's speaker driver removed): the service stays off, and the setup
+        // window says what's needed. Once each time it happens, so closing the window doesn't bring it straight back.
+        bool needsSetup = _last?.Message.StartsWith(ServiceClient.NeedsSetup, StringComparison.Ordinal) == true;
+        if (needsSetup && !_neededSetup && !_setupNeeded)
+        {
+            AppLog.Write($"service: {_last!.Message}");
+            ShowSetup(WhyOff());
+        }
+        _neededSetup = needsSetup;
+
+        // Double input: while HapticLink is on, the real controller mustn't be in Windows' game controller list. A few
+        // seconds' grace after it turns on (the controller restarts while being hidden), then once per "on" stretch.
+        if (_last?.State == "on")
+        {
+            _onSince ??= DateTime.UtcNow;
+            if (!_reportedDoubleInput && DateTime.UtcNow - _onSince > TimeSpan.FromSeconds(5) && await Task.Run(DoubleInput.RealPadVisible))
+            {
+                _reportedDoubleInput = true;
+                AppLog.Write("the real controller is in Windows' game controller list while HapticLink is on: double input");
+                await Task.Run(ServiceClient.ReportDoubleInput);
+            }
+        }
+        else
+        {
+            _onSince = null;
+            _reportedDoubleInput = false;
+        }
     }
+
+    /// <summary>What the service says is missing ("HidHide isn't installed"), or null when nothing is.</summary>
+    private string? WhyOff() =>
+        _last?.Message is { } m && m.StartsWith(ServiceClient.NeedsSetup, StringComparison.Ordinal)
+            ? m[ServiceClient.NeedsSetup.Length..].Split(". Open HapticLink's setup", 2)[0]
+            : null;
 
     private void Refresh()
     {
         var s = _last;
         bool running = s is not null;
-        _setup.Visible = _setupNeeded || !running;
-        _setup.Enabled = !_busy;
-        _hidHide.Visible = running && !_setupNeeded && !ServiceSetup.HidHideInstalled; // "Finish setup" asks about it already
-        _hidHide.Enabled = !_busy;
-        // The service says "Steam isn't installed" when it has nothing to take the speaker driver from.
-        _getSteam.Visible = running && s!.Message.Contains("Steam isn't installed", StringComparison.Ordinal);
+        // Shown while something is missing: setup not done, or the service reports HidHide or Steam missing.
+        _setup.Visible = _setupNeeded || !running
+            || s!.Message.StartsWith(ServiceClient.NeedsSetup, StringComparison.Ordinal)
+            || s.Message.Contains("HidHide isn't installed", StringComparison.Ordinal)
+            || s.Message.Contains("Steam isn't installed", StringComparison.Ordinal);
+        _setup.Text = _setupNeeded || !running ? "Finish setting up HapticLink…" : "Set up HapticLink…";
         _toggle.Enabled = running && !_busy;
         _toggle.Checked = s?.Enabled == true;
         // The speaker switch, indented under the main one; hidden for a service too old to have it.
@@ -162,18 +198,15 @@ internal sealed class TrayApp : ApplicationContext
             : _updater.Checking ? "Checking for updates…"
             : _updater.LastResult is { } result ? $"Check for updates ({result})" : "Check for updates";
 
-        if (!_status.Text?.StartsWith("Setup failed", StringComparison.Ordinal) ?? true)
-            _status.Text = _busy && !running ? "Setting up…"
-                : !running ? "Not set up yet: the HapticLink service isn't running."
-                : s!.Message;
+        _status.Text = !running ? "Not set up yet: the HapticLink service isn't running." : s!.Message;
         _icon.Icon = s?.State == "on" ? _activeIcon : _idleIcon;
         var tip = !running ? "HapticLink: not set up" : s!.State switch
         {
-            // The service adds a "Warning: … HidHide …" when games can still see the real controller.
-            "on" when s.Message.Contains("HidHide", StringComparison.Ordinal) => "HapticLink: on (real controller not hidden)",
             "on" => s.Haptics ? "HapticLink: on" : "HapticLink: on (no haptics)",
             "waiting" => "HapticLink: waiting for a DualSense",
             "off" => "HapticLink: off",
+            "error" when s.Message.StartsWith(ServiceClient.NeedsSetup + ServiceClient.HidHideBroken, StringComparison.Ordinal) => "HapticLink: off (double input, needs repair)",
+            "error" when s.Message.StartsWith(ServiceClient.NeedsSetup, StringComparison.Ordinal) => "HapticLink: off (needs setup)",
             _ => "HapticLink: " + s.State,
         };
         _icon.Text = tip.Length > 63 ? tip[..63] : tip;
