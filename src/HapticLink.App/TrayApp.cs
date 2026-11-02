@@ -14,6 +14,10 @@ internal sealed class TrayApp : ApplicationContext
     private readonly ContextMenuStrip _menu = new();
     private readonly ToolStripMenuItem _status = new() { Enabled = false };
     private readonly ToolStripMenuItem _setup = new("Finish setup (admin prompt)…");
+    private readonly ToolStripMenuItem _hidHide = new("Install HidHide (admin prompt)…")
+    {
+        ToolTipText = "HidHide (free, by Nefarius) hides the real controller, so games only see HapticLink's and don't drive both.",
+    };
     private readonly ToolStripMenuItem _toggle = new("Full DualSense features");
     private readonly ToolStripMenuItem _speaker = new("Controller speaker")
     {
@@ -37,6 +41,7 @@ internal sealed class TrayApp : ApplicationContext
         _idleIcon = IconMaker.Create(small, active: false);
 
         _setup.Click += async (_, _) => await RunSetupAsync();
+        _hidHide.Click += async (_, _) => await RunSetupAsync(installHidHide: true);
         _toggle.Click += async (_, _) => await ToggleAsync();
         _speaker.Click += async (_, _) => await SetFeatureAsync("speaker", !(_speakerOn ?? true));
         _startup.Click += (_, _) => { try { Startup.Set(!Startup.IsEnabled); } catch (Exception ex) { AppLog.Write($"startup: {ex.Message}"); } Refresh(); };
@@ -50,7 +55,7 @@ internal sealed class TrayApp : ApplicationContext
         var exit = new ToolStripMenuItem("Exit (turns HapticLink off)") { ToolTipText = "Games get the controller back as it is. Starting HapticLink again turns it back on." };
         exit.Click += (_, _) => ExitThread();
 
-        _menu.Items.AddRange([_status, _setup, new ToolStripSeparator(), _toggle, _speaker, new ToolStripSeparator(), _startup, _update, log,
+        _menu.Items.AddRange([_status, _setup, _hidHide, new ToolStripSeparator(), _toggle, _speaker, new ToolStripSeparator(), _startup, _update, log,
             new ToolStripSeparator(), new ToolStripMenuItem($"HapticLink {AppLog.Version}") { Enabled = false }, exit]);
         _menu.Opening += (_, _) => Refresh();
 
@@ -78,12 +83,21 @@ internal sealed class TrayApp : ApplicationContext
         await PollAsync();
     }
 
-    private async Task RunSetupAsync()
+    /// <param name="installHidHide">
+    /// Also install HidHide (the tray item). Otherwise, when HidHide is missing, the user is asked first: it's another
+    /// developer's driver, so it's never installed without a yes.
+    /// </param>
+    private async Task RunSetupAsync(bool installHidHide = false)
     {
         if (_busy) return;
         _busy = true;
         Refresh();
-        var (ok, error) = await ServiceSetup.RunAsync();
+        if (!installHidHide && !ServiceSetup.HidHideInstalled)
+            installHidHide = MessageBox.Show(
+                "HapticLink needs HidHide (free, by Nefarius) to hide your real controller, so games only see HapticLink's " +
+                "controller and don't drive both.\n\nDownload and install HidHide as part of setup?",
+                "HapticLink setup", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
+        var (ok, error) = await ServiceSetup.RunAsync(installHidHide);
         AppLog.Write($"setup: {(ok ? "done" : error ?? "cancelled")}");
         _setupNeeded = !ok;
         _busy = false;
@@ -125,6 +139,8 @@ internal sealed class TrayApp : ApplicationContext
         bool running = s is not null;
         _setup.Visible = _setupNeeded || !running;
         _setup.Enabled = !_busy;
+        _hidHide.Visible = running && !_setupNeeded && !ServiceSetup.HidHideInstalled; // "Finish setup" asks about it already
+        _hidHide.Enabled = !_busy;
         _toggle.Enabled = running && !_busy;
         _toggle.Checked = s?.Enabled == true;
         // The speaker switch, indented under the main one; hidden for a service too old to have it.

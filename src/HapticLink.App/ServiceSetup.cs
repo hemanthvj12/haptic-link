@@ -25,13 +25,37 @@ public static class ServiceSetup
         return ServiceClient.Hello() is not { } running || running < bundled;
     }
 
-    /// <summary>Runs setup elevated (one admin prompt). Returns ok, or an error for the user (null: prompt cancelled).</summary>
-    public static async Task<(bool Ok, string? Error)> RunAsync()
+    /// <summary>
+    /// HidHide (which hides the real controller from games) is installed. Same check as the service: its registry path,
+    /// else the default folder.
+    /// </summary>
+    public static bool HidHideInstalled
+    {
+        get
+        {
+            string? root = null;
+            try
+            {
+                using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Nefarius Software Solutions e.U.\HidHide");
+                root = key?.GetValue("Path") as string;
+            }
+            catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException) { }
+            root ??= Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Nefarius Software Solutions", "HidHide");
+            return File.Exists(Path.Combine(root, "x64", "HidHideCLI.exe"));
+        }
+    }
+
+    /// <summary>
+    /// Runs setup elevated (one admin prompt); with <paramref name="installHidHide"/> it also downloads and installs HidHide
+    /// if it's missing. Returns ok, or an error for the user (null: prompt cancelled).
+    /// </summary>
+    public static async Task<(bool Ok, string? Error)> RunAsync(bool installHidHide = false)
     {
         if (BundledVersion is null) return (false, "this copy of HapticLink doesn't include the service");
         try
         {
-            using var p = Process.Start(new ProcessStartInfo(BundledService, "setup") { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden })!;
+            using var p = Process.Start(new ProcessStartInfo(BundledService, installHidHide ? "setup --install-hidhide" : "setup")
+                { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden })!;
             await p.WaitForExitAsync();
             AppLog.Write($"setup exited with {p.ExitCode}");
             if (p.ExitCode != 0) return (false, $"setup failed (code {p.ExitCode}); details in %ProgramData%\\HapticLink\\service.log");

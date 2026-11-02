@@ -12,7 +12,8 @@ namespace HapticLink.Service;
 /// The app ships a "service" folder (this exe, HapticLinkPadHost.dll, driver\HapticLinkPad.inf/.dll/.cat/.cer). Setup
 /// copies it to %ProgramFiles%\HapticLink\Service (admins-only: a SYSTEM service runs from it; also outside the app's
 /// per-user folder that updates replace), trusts the driver's certificate, adds the driver to Windows' driver store,
-/// puts the service on HidHide's allowed list and installs + starts the service.
+/// installs HidHide when asked (see <see cref="HidHideInstaller"/>), puts the service on HidHide's allowed list and
+/// installs + starts the service.
 /// </summary>
 internal static class Setup
 {
@@ -20,7 +21,8 @@ internal static class Setup
     public static string InstallDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "HapticLink", "Service");
     private static string ServiceExe => Path.Combine(InstallDir, "HapticLink.Service.exe");
 
-    public static int Install()
+    /// <param name="installHidHide">The user agreed in the app to install HidHide if it's missing.</param>
+    public static int Install(bool installHidHide = false)
     {
         Log.Write("setup: starting");
         string source = AppContext.BaseDirectory;
@@ -40,6 +42,7 @@ internal static class Setup
         if (exit != 0 && exit != 259) { Log.Write($"setup: pnputil failed ({exit}): {output}"); return 3; }
         Log.Write("setup: driver added to the driver store");
 
+        if (installHidHide) HidHideInstaller.EnsureInstalled();
         if (HidHide.FindCli() is { } cli) HidHide.RunCli(cli, $"--app-reg \"{ServiceExe}\"");
 
         bool exists = ServiceController.GetServices().Any(s => s.ServiceName == ServiceName);

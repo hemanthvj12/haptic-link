@@ -14,7 +14,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>HapticLink.Service</RootNamespace>
     <AssemblyName>HapticLink.Service</AssemblyName>
-    <Version>1.2.1</Version>
+    <Version>1.2.2</Version>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>false</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>

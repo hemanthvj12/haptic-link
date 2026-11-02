@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.2 (unreleased)
+- Setup offers to install HidHide when it's missing: one question, then HapticLink downloads HidHide 1.5.230 from Nefarius's GitHub release, checks it's the exact file, and installs it within the same administrator prompt. Said no? The tray menu has *Install HidHide (admin prompt)…* while it's missing.
+- Service 1.2.2: after updating, HapticLink asks once for administrator rights to update its background service (and offers HidHide then, if it's missing).
+
 ## 1.2.1 (2026-11-02)
 - Fixed: games and gamepad testers could see two controllers, the real one not responding, even with HidHide installed (issue #1). HidHide only hides a controller from apps that open it afterwards, and Windows' own game controller input had already opened it. HapticLink now restarts the controller for a moment after hiding it (and again when it stops, so games see it once more), then checks that HidHide is really attached to it.
 - If games can still see the real controller, the tray says why: HidHide isn't installed, HidHide needs a Windows restart after installing, or the controller couldn't be restarted (then turn it off and on).
