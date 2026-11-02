@@ -98,6 +98,34 @@ public class DualSenseBridgeTests
     }
 
     [Fact]
+    public void Audio_report_matches_the_known_layout()
+    {
+        // LinuxAudio4Dualsense5 / DS5_Bridge: 398 bytes, sub-packets at 2, 11, 76 and 142, CRC over the first 394.
+        var haptics = new sbyte[DualSenseReports.HapticsSamples];
+        for (int i = 0; i < haptics.Length; i++) haptics[i] = (sbyte)(i - 32);
+        var opus = new byte[DualSenseReports.OpusFrameLength];
+        for (int i = 0; i < opus.Length; i++) opus[i] = (byte)(i * 7);
+        var state = new byte[DualSenseReports.AudioStateLength];
+        DualSenseReports.AudioState(0x7F, 0x64, 0x30, 0x02, state);
+        var report = new byte[DualSenseReports.AudioLength];
+
+        DualSenseReports.Audio(haptics, opus, state, headphones: false, sequence: 3, counter: 9, report);
+
+        Assert.Equal(new byte[] { 0x36, 0x30, 0x91, 0x07, 0xFE, 64, 64, 64, 64, 64, 9, 0x90, 63 }, report[..13]);
+        Assert.Equal(new byte[] { 0xB0, 0x80, 0, 0, 0x7F, 0x64, 0, 0x30 }, report[13..21]);
+        Assert.Equal(0x02, report[13 + 37]);
+        Assert.Equal(new byte[] { 0x92, 64 }, report[76..78]);
+        for (int i = 0; i < 64; i++) Assert.Equal((byte)haptics[i], report[78 + i]);
+        Assert.Equal(new byte[] { 0x93, 200 }, report[142..144]);
+        Assert.Equal(opus, report[144..344]);
+        Assert.All(report[344..394], b => Assert.Equal(0, b));
+        Assert.Equal(ReferenceCrc(report.AsSpan(0, 394)), BitConverter.ToUInt32(report, 394));
+
+        DualSenseReports.Audio(haptics, opus, state, headphones: true, sequence: 0, counter: 0, report);
+        Assert.Equal(0x96, report[142]);
+    }
+
+    [Fact]
     public void Shared_memory_layout_matches_the_driver_header()
     {
         Assert.Equal(VirtualPad.OffOutput + VirtualPad.RingSlots * VirtualPad.SlotSize, VirtualPad.OffFeatureMask);

@@ -28,6 +28,12 @@ public static class ServiceClient
 
     public static bool SetEnabled(bool enabled) => Ask(enabled ? "ENABLE" : "DISABLE") is not null;
 
+    /// <summary>The controller speaker switch, or null (service not running, or older than 1.1.0).</summary>
+    public static bool? SpeakerOn() => Ask("FEATURES") is { } reply ? reply.Split(' ').Contains("speaker=1") : null;
+
+    /// <summary>Turns a feature ("speaker") on or off.</summary>
+    public static bool SetFeature(string name, bool on) => Ask($"SET {name} {(on ? 1 : 0)}") is not null;
+
     private static string? Ask(string command)
     {
         try

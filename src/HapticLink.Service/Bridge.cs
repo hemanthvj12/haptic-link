@@ -27,6 +27,9 @@ internal sealed class Bridge : IDisposable
     private HapticsRelay? _haptics;
     private Thread? _pump;
     private byte _sequence;
+    private volatile bool _headphones;
+    // The audio fields of the game's last output reports (USB 0x02 body offsets 4, 5, 7 and 37); -1 = never set, use defaults.
+    private volatile int _headphoneVolume = -1, _speakerVolume = -1, _audioControl = -1, _audioControl2 = -1;
 
     /// <summary>Haptics reach the pad: Steam's speaker driver is there and its speaker is being recorded.</summary>
     public bool HasHaptics => _haptics?.Recording == true;
@@ -68,7 +71,7 @@ internal sealed class Bridge : IDisposable
             if (speaker.Show() is { } endpoint)
             {
                 bridge._speaker = speaker;
-                bridge._haptics = new HapticsRelay(endpoint, report => pad.Write(report.Span), Log.Write);
+                bridge._haptics = new HapticsRelay(endpoint, report => pad.Write(report.Span), bridge.SpeakerSetup, Log.Write);
                 bridge._haptics.Start();
             }
             Log.Write($"bridge started: {pad.InstanceId}{(bridge.HasSpeaker ? "" : $" (no haptics: {speaker.Problem})")}");
@@ -81,9 +84,43 @@ internal sealed class Bridge : IDisposable
         }
     }
 
+    /// <summary>The tray's speaker switch, applied every second while the bridge runs.</summary>
+    public void ApplyFeatures(bool speaker)
+    {
+        if (_haptics is { } haptics) haptics.SpeakerOn = speaker;
+    }
+
     private void OnInput(ReadOnlySpan<byte> report)
     {
-        if (_channel is { } channel && DualSenseReports.ToUsbInput(report, _usbInput)) channel.WriteInput(_usbInput);
+        if (_channel is { } channel && DualSenseReports.ToUsbInput(report, _usbInput))
+        {
+            _headphones = DualSenseReports.HeadphonesPlugged(_usbInput);
+            channel.WriteInput(_usbInput);
+        }
+    }
+
+    // The speaker report's audio settings: what the game last set, else full volume on the speaker or the headphones
+    // (whichever is plugged in) with DS5_Bridge's preamp.
+    private bool SpeakerSetup(Span<byte> state)
+    {
+        bool headphones = _headphones;
+        if (state.Length >= DualSenseReports.AudioStateLength)
+            DualSenseReports.AudioState(
+                (byte)(_headphoneVolume is >= 0 and var h ? h : 0x7F),
+                (byte)(_speakerVolume is >= 0 and var s ? s : 0x64),
+                (byte)(_audioControl is >= 0 and var a ? a : headphones ? 0x00 : 0x30),
+                (byte)(_audioControl2 is >= 0 and var a2 ? a2 : 0x02),
+                state);
+        return headphones;
+    }
+
+    private void NoteAudioFields(ReadOnlySpan<byte> usb)
+    {
+        byte flag0 = usb[1], flag1 = usb[2];
+        if ((flag0 & 0x10) != 0) _headphoneVolume = usb[1 + 4];
+        if ((flag0 & 0x20) != 0) _speakerVolume = usb[1 + 5];
+        if ((flag0 & 0x80) != 0) _audioControl = usb[1 + 7];
+        if ((flag1 & 0x80) != 0) _audioControl2 = usb[1 + 37];
     }
 
     private void PumpOutputs()
@@ -96,7 +133,9 @@ internal sealed class Bridge : IDisposable
             {
                 channel.ReadOutputs(usb =>
                 {
-                    if (DualSenseReports.ToBtOutput(usb, _sequence++, bt)) _pad.Write(bt);
+                    if (!DualSenseReports.ToBtOutput(usb, _sequence++, bt)) return;
+                    NoteAudioFields(usb);
+                    _pad.Write(bt);
                 });
                 Thread.Sleep(1);
             }

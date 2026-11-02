@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
+using Concentus;
+using Concentus.Enums;
 
 namespace HapticLink.Service;
 
@@ -18,6 +20,10 @@ namespace HapticLink.Service;
 /// A block that misses its tick is sent the moment it arrives and the clock moves later, so a late block costs a few
 /// milliseconds instead of a gap; a block is dropped only when a whole extra block keeps waiting.
 /// Every 30 s of haptics the log gets "haptics timing": the delay from the audio engine's mix to the report write.
+/// Speaker: games play the pad speaker's sound on channels 1-2 of the same endpoint. Once one makes a sound, each block's
+/// 512 frames are resampled to 480 (the pad's speaker clock, after DS5_Bridge), Opus-encoded (10 ms, CBR 200 bytes) and
+/// sent with the haptics block in a report 0x36 instead of 0x32, until the game's stream closes. The pad's own speaker
+/// is mono, so it gets whichever channel carries sound (both mixed when both do); the headphone jack gets stereo.
 /// </summary>
 internal sealed unsafe class HapticsRelay : IDisposable
 {
@@ -26,17 +32,25 @@ internal sealed unsafe class HapticsRelay : IDisposable
     private const double Period = 10_000_000.0 * 32 / 3000; // one report, 100 ns units
     private const long StatsEvery = 300_000_000; // 30 s
 
-    private readonly record struct Block(sbyte[] Data, long Mixed, long Arrived);
+    private const int SpeakerFrames = 512, OpusFrames = 480, FadeFrames = 1920; // fade-in: 40 ms
+    private const float SpeakerThreshold = 0.0005f; // about -66 dB
+
+    private readonly record struct Block(sbyte[] Data, long Mixed, long Arrived, byte[]? Opus, bool Headphones);
+
+    /// <summary>Fills the 0x36 audio state sub-packet (when given room for it); returns whether headphones are plugged in.</summary>
+    public delegate bool SpeakerSetup(Span<byte> state);
 
     private readonly string _endpointId;
     private readonly Func<ReadOnlyMemory<byte>, bool> _write;
     private readonly Action<string> _log;
+    private readonly SpeakerSetup _speakerSetup;
     private readonly ConcurrentQueue<Block> _queue = new();
     private readonly AutoResetEvent _arrived = new(false);
     private readonly CancellationTokenSource _cts = new();
     private long _lastArrival;
     private volatile bool _recording;
     private volatile string? _problem;
+    private volatile bool _speaking;
     private Thread? _capture, _sender;
 
     /// <summary>The pad speaker is being recorded, so a game's haptics reach the pad (STATUS's haptics flag).</summary>
@@ -45,10 +59,17 @@ internal sealed unsafe class HapticsRelay : IDisposable
     /// <summary>Why recording keeps failing (it retries every second), or null.</summary>
     public string? Problem => _problem;
 
-    public HapticsRelay(string endpointId, Func<ReadOnlyMemory<byte>, bool> write, Action<string> log)
+    /// <summary>A game is playing sound on the pad's speaker (or headphones).</summary>
+    public bool Speaking => _speaking;
+
+    /// <summary>The speaker switch: off, speaker sound isn't sent (haptics stay on report 0x32).</summary>
+    public volatile bool SpeakerOn = true;
+
+    public HapticsRelay(string endpointId, Func<ReadOnlyMemory<byte>, bool> write, SpeakerSetup speakerSetup, Action<string> log)
     {
         _endpointId = endpointId;
         _write = write;
+        _speakerSetup = speakerSetup;
         _log = log;
     }
 
@@ -113,6 +134,10 @@ internal sealed unsafe class HapticsRelay : IDisposable
             var block = new sbyte[DualSenseReports.HapticsSamples];
             int fill = 0;
             bool loggedPacket = false;
+            var speaker = new Speaker();
+            var spk = new float[SpeakerFrames * 2];
+            int spkFill = 0;
+            long lastBlock = 0;
             while (!_cts.IsCancellationRequested)
             {
                 Thread.Sleep(1);
@@ -128,12 +153,14 @@ internal sealed unsafe class HapticsRelay : IDisposable
                     bool silent = (flags & 0x2) != 0;
                     for (int f = 0; f < frames; f++)
                     {
-                        float l = 0, r = 0;
+                        float l = 0, r = 0, sl = 0, sr = 0;
                         if (!silent)
                         {
-                            if (bits == 32) { float* s = (float*)data + f * channels; l = s[2]; r = s[3]; }
-                            else { short* s = (short*)data + f * channels; l = s[2] / 32768f; r = s[3] / 32768f; }
+                            if (bits == 32) { float* s = (float*)data + f * channels; sl = s[0]; sr = s[1]; l = s[2]; r = s[3]; }
+                            else { short* s = (short*)data + f * channels; sl = s[0] / 32768f; sr = s[1] / 32768f; l = s[2] / 32768f; r = s[3] / 32768f; }
                         }
+                        // A haptics block is exactly 512 input frames, so the speaker block fills in step with it.
+                        if (spkFill < SpeakerFrames) { spk[spkFill * 2] = sl; spk[spkFill * 2 + 1] = sr; spkFill++; }
                         if (!decimator.Push(l, r, out float dl, out float dr)) continue;
                         block[fill++] = ToS8(dl);
                         block[fill++] = ToS8(dr);
@@ -142,7 +169,16 @@ internal sealed unsafe class HapticsRelay : IDisposable
                             // qpc is when the engine mixed the packet's first frame (100 ns units, same clock as Now).
                             long now = Now();
                             long mixed = qpc != 0 ? (long)qpc + (long)(f * 10_000_000.0 / rate) : 0;
-                            _queue.Enqueue(new Block((sbyte[])block.Clone(), mixed, now));
+                            // A gap means the game's stream closed: the speaker waits for sound again.
+                            if (speaker.On && now - lastBlock > 1_000_000) { speaker.On = false; _speaking = false; _log("speaker: stopped"); }
+                            lastBlock = now;
+                            bool headphones = _speakerSetup(Span<byte>.Empty);
+                            if (!SpeakerOn && speaker.On) { speaker.On = false; _speaking = false; _log("speaker: turned off"); }
+                            bool started = false;
+                            byte[]? opus = SpeakerOn ? speaker.Encode(spk, headphones, out started) : null;
+                            if (started) { _speaking = true; _log($"speaker: playing ({(headphones ? "headphones" : "built-in speaker")})"); }
+                            spkFill = 0;
+                            _queue.Enqueue(new Block((sbyte[])block.Clone(), mixed, now, opus, headphones));
                             Volatile.Write(ref _lastArrival, now);
                             _arrived.Set();
                             fill = 0;
@@ -162,7 +198,9 @@ internal sealed unsafe class HapticsRelay : IDisposable
     {
         IntPtr timer = CreateWaitableTimerExW(IntPtr.Zero, IntPtr.Zero, 0x2 /* high resolution */, 0x1F0003);
         var report = new byte[DualSenseReports.HapticsLength];
-        byte counter = 0;
+        var audioReport = new byte[DualSenseReports.AudioLength];
+        var state = new byte[DualSenseReports.AudioStateLength];
+        byte counter = 0, sequence = 0;
         var stats = new Stats();
         long windowMin = long.MaxValue, statsFrom = Now();
         int windowCount = 0;
@@ -202,9 +240,17 @@ internal sealed unsafe class HapticsRelay : IDisposable
                     windowCount = 0;
                 }
 
-                DualSenseReports.Haptics(block.Data, counter++, report);
+                byte[] toSend = report;
+                if (block.Opus is { } opus)
+                {
+                    _speakerSetup(state);
+                    DualSenseReports.Audio(block.Data, opus, state, block.Headphones, sequence++, counter++, audioReport);
+                    toSend = audioReport;
+                    stats.Speaker++;
+                }
+                else DualSenseReports.Haptics(block.Data, counter++, report);
                 long before = Now();
-                _write(report);
+                _write(toSend);
                 long after = Now();
                 stats.Add(before - block.Arrived, block.Mixed != 0, after - block.Mixed, after - before);
                 if (!onTime) continue;
@@ -235,7 +281,7 @@ internal sealed unsafe class HapticsRelay : IDisposable
 
     private sealed class Stats
     {
-        public int Sent, Late, Dropped;
+        public int Sent, Late, Dropped, Speaker;
         private long _waitSum, _waitMax, _mixSum, _mixMin, _mixMax, _mixCount, _writeSum, _writeMax;
 
         // mixToWrite can be negative: the endpoint's timestamps can run ahead of when we read its audio.
@@ -256,7 +302,7 @@ internal sealed unsafe class HapticsRelay : IDisposable
         public override string ToString() =>
             $"{Sent} reports; mix to write avg {(_mixCount > 0 ? $"{Ms((double)_mixSum / _mixCount)} ms ({Ms(_mixMin)} to {Ms(_mixMax)})" : "?")}; " +
             $"queue wait avg {Ms((double)_waitSum / Sent)}, max {Ms(_waitMax)}; write avg {Ms((double)_writeSum / Sent)}, max {Ms(_writeMax)}; " +
-            $"{Late} late, {Dropped} dropped";
+            $"{Late} late, {Dropped} dropped; {Speaker} with speaker sound";
     }
 
     // What the audio engine runs at: a shorter engine period would hand over smaller chunks sooner.
@@ -286,10 +332,69 @@ internal sealed unsafe class HapticsRelay : IDisposable
     public void Dispose()
     {
         _recording = false;
+        _speaking = false;
         _cts.Cancel();
         _capture?.Join(1000);
         _sender?.Join(1000);
         _arrived.Dispose();
+    }
+
+    // The speaker stream: waits for sound, then turns every 512-frame block into one 200-byte Opus frame.
+    private sealed class Speaker
+    {
+        private readonly IOpusEncoder _encoder;
+        private readonly float[] _pcm = new float[OpusFrames * 2];
+        private int _faded;
+        public bool On;
+
+        public Speaker()
+        {
+            OpusCodecFactory.AttemptToUseNativeLibrary = false; // never load an opus.dll found on the path into a SYSTEM service
+            _encoder = OpusCodecFactory.CreateEncoder(48000, 2, OpusApplication.OPUS_APPLICATION_AUDIO);
+            _encoder.Bitrate = DualSenseReports.OpusFrameLength * 8 * 100; // 160 kbit/s: exactly 200 bytes per 10 ms frame
+            _encoder.UseVBR = false;
+            _encoder.Complexity = 0;
+        }
+
+        /// <summary>One block of channels 1-2 (512 stereo frames) → an Opus frame, or null while no sound has played.</summary>
+        public byte[]? Encode(float[] block, bool headphones, out bool started)
+        {
+            started = false;
+            float peakL = 0, peakR = 0;
+            for (int i = 0; i < SpeakerFrames; i++)
+            {
+                peakL = Math.Max(peakL, Math.Abs(block[i * 2]));
+                peakR = Math.Max(peakR, Math.Abs(block[i * 2 + 1]));
+            }
+            if (!On)
+            {
+                if (Math.Max(peakL, peakR) < SpeakerThreshold) return null;
+                On = started = true;
+                _encoder.ResetState();
+                _faded = 0;
+            }
+            // The built-in speaker is mono: take the channel that carries sound, or both mixed.
+            float wl = 0.5f, wr = 0.5f;
+            if (peakR < peakL * 0.01f) (wl, wr) = (1, 0);
+            else if (peakL < peakR * 0.01f) (wl, wr) = (0, 1);
+            // 512 → 480 frames, linear (as DS5_Bridge does).
+            const float step = (SpeakerFrames - 1) / (float)(OpusFrames - 1);
+            for (int i = 0; i < OpusFrames; i++)
+            {
+                float src = i * step;
+                int a = (int)src, b = Math.Min(a + 1, SpeakerFrames - 1);
+                float t = src - a;
+                float l = block[a * 2] + (block[b * 2] - block[a * 2]) * t;
+                float r = block[a * 2 + 1] + (block[b * 2 + 1] - block[a * 2 + 1]) * t;
+                float gain = _faded < FadeFrames ? (float)_faded++ / FadeFrames : 1f;
+                if (headphones) { _pcm[i * 2] = l * gain; _pcm[i * 2 + 1] = r * gain; }
+                else _pcm[i * 2] = _pcm[i * 2 + 1] = (l * wl + r * wr) * gain;
+            }
+            var frame = new byte[DualSenseReports.OpusFrameLength];
+            int n = _encoder.Encode(_pcm, OpusFrames, frame, frame.Length);
+            if (n < 0) throw new InvalidOperationException($"Opus encoding failed ({n})");
+            return frame;
+        }
     }
 
     // 48 kHz → 3 kHz: Hann-windowed sinc low-pass (1.2 kHz, 96 taps, unity gain at DC), keeping every 16th frame.

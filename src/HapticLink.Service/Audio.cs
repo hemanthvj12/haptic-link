@@ -2,15 +2,14 @@ using System.Runtime.InteropServices;
 
 namespace HapticLink.Service;
 
-/// <summary>Core Audio calls the speaker endpoint needs: state, visibility, default device, property store.</summary>
+/// <summary>Core Audio calls the pad's sound devices need: state, visibility, default device, formats, property store.</summary>
 internal static class Audio
 {
-    private const int Render = 0;
-
-    public static string? DefaultRenderId()
+    /// <summary>The default playback (or recording) device.</summary>
+    public static string? DefaultId(bool capture)
     {
         var enumerator = (IMMDeviceEnumerator)ComObjects.Create(ComObjects.MMDeviceEnumerator);
-        if (enumerator.GetDefaultAudioEndpoint(Render, 1 /* multimedia */, out var device) != 0) return null;
+        if (enumerator.GetDefaultAudioEndpoint(capture ? 1 : 0, 1 /* multimedia */, out var device) != 0) return null;
         return device.GetId(out var id) == 0 ? id : null;
     }
 
@@ -40,6 +39,12 @@ internal static class Audio
     {
         int hr = LoopbackCheck(id);
         if (hr != AudclntEUnsupportedFormat) return;
+        int set = SetFormat(id, deviceFormat, mixFormat);
+        Log.Write($"speaker endpoint: the audio engine refused its format; set it again (0x{set:X8}), recording now 0x{LoopbackCheck(id):X8}");
+    }
+
+    private static int SetFormat(string id, byte[] deviceFormat, byte[] mixFormat)
+    {
         IntPtr device = Marshal.AllocHGlobal(deviceFormat.Length), mix = Marshal.AllocHGlobal(mixFormat.Length);
         try
         {
@@ -47,7 +52,7 @@ internal static class Audio
             Marshal.Copy(mixFormat, 0, mix, mixFormat.Length);
             int set = ((IPolicyConfig)ComObjects.Create(ComObjects.PolicyConfigClient)).SetDeviceFormat(id, device, mix);
             Thread.Sleep(500);
-            Log.Write($"speaker endpoint: the audio engine refused its format; set it again (0x{set:X8}), recording now 0x{LoopbackCheck(id):X8}");
+            return set;
         }
         finally
         {
@@ -85,16 +90,16 @@ internal static class Audio
     }
 
     /// <summary>A newly shown endpoint may grab the default; put <paramref name="before"/> back if it did.</summary>
-    public static void KeepDefault(string? before, string endpoint)
+    public static void KeepDefault(string? before, string endpoint, bool capture)
     {
-        if (before is null || before == endpoint || DefaultRenderId() != endpoint) return;
+        if (before is null || before == endpoint || DefaultId(capture) != endpoint) return;
         var policy = (IPolicyConfig)ComObjects.Create(ComObjects.PolicyConfigClient);
         for (int role = 0; role < 3; role++) policy.SetDefaultEndpoint(before, role);
-        Log.Write("the pad speaker had become the default playback device; put the previous one back");
+        Log.Write($"{endpoint} had become the default {(capture ? "recording" : "playback")} device; put the previous one back");
     }
 
     /// <summary>Whether the endpoint's property store already returns this value.</summary>
-    public static bool Served(string id, SpeakerEndpoint.StampItem item)
+    public static bool Served(string id, AudioDevices.StampItem item)
     {
         var enumerator = (IMMDeviceEnumerator)ComObjects.Create(ComObjects.MMDeviceEnumerator);
         if (enumerator.GetDevice(id, out var device) != 0 || device.OpenPropertyStore(0 /* STGM_READ */, out var store) != 0) return false;
@@ -114,12 +119,12 @@ internal static class Audio
     }
 
     /// <summary>Writes through the property store; returns the items it refused (or all, if it can't be opened writable).</summary>
-    public static List<SpeakerEndpoint.StampItem> Write(string id, List<SpeakerEndpoint.StampItem> items)
+    public static List<AudioDevices.StampItem> Write(string id, List<AudioDevices.StampItem> items, string what)
     {
         var enumerator = (IMMDeviceEnumerator)ComObjects.Create(ComObjects.MMDeviceEnumerator);
         if (enumerator.GetDevice(id, out var device) != 0 || device.OpenPropertyStore(2 /* STGM_READWRITE */, out var store) != 0)
             return items;
-        var refused = new List<SpeakerEndpoint.StampItem>();
+        var refused = new List<AudioDevices.StampItem>();
         var written = new List<string>();
         foreach (var item in items)
         {
@@ -137,7 +142,7 @@ internal static class Audio
             if (hr == 0) written.Add(item.Label); else refused.Add(item);
         }
         if (written.Count > 0 && store.Commit() != 0) return items;
-        if (written.Count > 0) Log.Write($"speaker endpoint: stamped through the property store: {string.Join(", ", written)}");
+        if (written.Count > 0) Log.Write($"{what}: stamped through the property store: {string.Join(", ", written)}");
         return refused;
     }
 

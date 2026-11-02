@@ -61,7 +61,7 @@ internal sealed class HapticLinkService : IDisposable
                 return;
             }
             if (_bridge is { Alive: false }) StopBridge("controller disconnected");
-            if (_bridge is not null) { ShowOn(_bridge); return; }
+            if (_bridge is not null) { _bridge.ApplyFeatures(Settings.Speaker); ShowOn(_bridge); return; }
 
             var paths = PadConnection.FindBluetoothPads();
             if (paths.Count == 0) { Set("waiting", "Waiting for a DualSense connected over Bluetooth."); return; }
@@ -74,6 +74,7 @@ internal sealed class HapticLinkService : IDisposable
                 var allowed = new List<string> { Environment.ProcessPath! };
                 allowed.AddRange(_readers);
                 _bridge = Bridge.Start(pad, _speaker, allowed);
+                _bridge.ApplyFeatures(Settings.Speaker);
                 ShowOn(_bridge);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
@@ -87,7 +88,7 @@ internal sealed class HapticLinkService : IDisposable
     private void ShowOn(Bridge bridge)
     {
         if (bridge.HasHaptics)
-            Set("on", "On: games see a wired DualSense (haptics, adaptive triggers, rumble, lights).");
+            Set("on", $"On: games see a wired DualSense (haptics, adaptive triggers, rumble, lights{(Settings.Speaker ? ", speaker" : "")}).");
         else if (!bridge.HasSpeaker) // set up again at the next start: turning HapticLink off and on retries it
             Set("on", $"On without haptics: {_speaker.Problem ?? "Steam's streaming speaker driver isn't installed"} (triggers, rumble and lights work).");
         else if (DateTime.UtcNow - bridge.StartedAt < TimeSpan.FromSeconds(10)) // a first failure often clears in a second
@@ -128,6 +129,9 @@ internal sealed class HapticLinkService : IDisposable
     ///   STATUS        → OK &lt;state&gt;|&lt;enabled 0/1&gt;|&lt;haptics 0/1&gt;|&lt;controller MAC or empty&gt;|&lt;message&gt;
     ///                   state: off, waiting, starting, on, error
     ///   ENABLE / DISABLE → OK
+    ///   FEATURES      → OK speaker=&lt;0/1&gt;     (service 1.1.0+; older ones answer ERR; more name=value pairs may follow)
+    ///   SET speaker 0|1 → OK                  (the controller speaker switch)
+    /// New commands are added without changing the protocol number; STATUS keeps its five fields.
     /// </summary>
     public static class Control
     {
@@ -201,6 +205,22 @@ internal sealed class HapticLinkService : IDisposable
                 Log.Write($"turned {(Settings.Enabled ? "on" : "off")} by an app");
                 _wake.Set();
                 return "OK";
+            case "FEATURES":
+                return $"OK speaker={(Settings.Speaker ? 1 : 0)}";
+            case "SET":
+            {
+                var args = parts.Length > 1 ? parts[1].Split(' ', StringSplitOptions.RemoveEmptyEntries) : [];
+                if (args.Length != 2 || args[1] is not ("0" or "1")) return "ERR usage: SET speaker 0|1";
+                bool on = args[1] == "1";
+                switch (args[0].ToLowerInvariant())
+                {
+                    case "speaker": Settings.Speaker = on; break;
+                    default: return "ERR unknown feature";
+                }
+                Log.Write($"{args[0].ToLowerInvariant()} turned {(on ? "on" : "off")} by an app");
+                _wake.Set();
+                return "OK";
+            }
             default:
                 return "ERR unknown command";
         }
@@ -233,22 +253,26 @@ internal sealed class HapticLinkService : IDisposable
     private static extern bool QueryFullProcessImageNameW(SafeProcessHandle process, int flags, StringBuilder name, ref int size);
 }
 
-/// <summary>HKLM\SOFTWARE\HapticLink: the on/off setting (on after setup), shared by every app that turns it.</summary>
+/// <summary>
+/// HKLM\SOFTWARE\HapticLink: the switches, shared by every app that turns them. Enabled (on after setup), Speaker (the
+/// controller speaker, on unless turned off).
+/// </summary>
 internal static class Settings
 {
     private const string Key = @"SOFTWARE\HapticLink";
 
-    public static bool Enabled
+    public static bool Enabled { get => Get("Enabled", true); set => Put("Enabled", value); }
+    public static bool Speaker { get => Get("Speaker", true); set => Put("Speaker", value); }
+
+    private static bool Get(string name, bool missing)
     {
-        get
-        {
-            using var key = Registry.LocalMachine.OpenSubKey(Key);
-            return key?.GetValue("Enabled") is not int v || v != 0;
-        }
-        set
-        {
-            using var key = Registry.LocalMachine.CreateSubKey(Key);
-            key.SetValue("Enabled", value ? 1 : 0, RegistryValueKind.DWord);
-        }
+        using var key = Registry.LocalMachine.OpenSubKey(Key);
+        return key?.GetValue(name) is int v ? v != 0 : missing;
+    }
+
+    private static void Put(string name, bool value)
+    {
+        using var key = Registry.LocalMachine.CreateSubKey(Key);
+        key.SetValue(name, value ? 1 : 0, RegistryValueKind.DWord);
     }
 }

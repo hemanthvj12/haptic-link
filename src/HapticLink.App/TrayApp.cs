@@ -14,6 +14,11 @@ internal sealed class TrayApp : ApplicationContext
     private readonly ToolStripMenuItem _status = new() { Enabled = false };
     private readonly ToolStripMenuItem _setup = new("Finish setup (admin prompt)…");
     private readonly ToolStripMenuItem _toggle = new("Full DualSense features");
+    private readonly ToolStripMenuItem _speaker = new("Controller speaker")
+    {
+        ToolTipText = "Game sounds meant for the controller play from it (or headphones plugged into it). If haptics stutter while it plays, try turning it off.",
+    };
+    private bool? _speakerOn;
     private readonly ToolStripMenuItem _startup = new("Start with Windows");
     private readonly ToolStripMenuItem _update = new("Check for updates");
     private readonly System.Windows.Forms.Timer _poll = new() { Interval = 2000 };
@@ -31,6 +36,7 @@ internal sealed class TrayApp : ApplicationContext
 
         _setup.Click += async (_, _) => await RunSetupAsync();
         _toggle.Click += async (_, _) => await ToggleAsync();
+        _speaker.Click += async (_, _) => await SetFeatureAsync("speaker", !(_speakerOn ?? true));
         _startup.Click += (_, _) => { try { Startup.Set(!Startup.IsEnabled); } catch (Exception ex) { AppLog.Write($"startup: {ex.Message}"); } Refresh(); };
         _update.Click += async (_, _) =>
         {
@@ -42,7 +48,7 @@ internal sealed class TrayApp : ApplicationContext
         var exit = new ToolStripMenuItem("Exit (the switch stays as it is)");
         exit.Click += (_, _) => ExitThread();
 
-        _menu.Items.AddRange([_status, _setup, new ToolStripSeparator(), _toggle, new ToolStripSeparator(), _startup, _update, log,
+        _menu.Items.AddRange([_status, _setup, new ToolStripSeparator(), _toggle, _speaker, new ToolStripSeparator(), _startup, _update, log,
             new ToolStripSeparator(), new ToolStripMenuItem($"HapticLink {AppLog.Version}") { Enabled = false }, exit]);
         _menu.Opening += (_, _) => Refresh();
 
@@ -94,9 +100,20 @@ internal sealed class TrayApp : ApplicationContext
         await PollAsync();
     }
 
+    private async Task SetFeatureAsync(string name, bool on)
+    {
+        if (_busy) return;
+        _busy = true;
+        await Task.Run(() => ServiceClient.SetFeature(name, on));
+        AppLog.Write($"controller {name}: {(on ? "on" : "off")}");
+        _busy = false;
+        await PollAsync();
+    }
+
     private async Task PollAsync()
     {
         _last = await Task.Run(ServiceClient.Status);
+        _speakerOn = _last is null ? null : await Task.Run(ServiceClient.SpeakerOn);
         Refresh();
     }
 
@@ -108,6 +125,11 @@ internal sealed class TrayApp : ApplicationContext
         _setup.Enabled = !_busy;
         _toggle.Enabled = running && !_busy;
         _toggle.Checked = s?.Enabled == true;
+        // The speaker switch, indented under the main one; hidden for a service too old to have it.
+        _speaker.Visible = _speakerOn is not null;
+        _speaker.Enabled = running && !_busy;
+        _speaker.Checked = _speakerOn == true;
+        _speaker.Padding = new Padding(16, 0, 0, 0);
         _startup.Checked = Startup.IsEnabled;
         _update.Visible = _updater.IsInstalled;
         _update.Enabled = !_updater.Checking;

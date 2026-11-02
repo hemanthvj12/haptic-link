@@ -3,6 +3,7 @@
 Games only use a DualSense's **haptics, adaptive triggers, rumble and light bar** when it's plugged in with a cable. HapticLink makes them work over **Bluetooth** on Windows: games see a wired DualSense, and everything they send is passed on to your controller over Bluetooth.
 
 - Haptics (the fine vibrations games play as sound), adaptive triggers, rumble, light bar and player lights.
+- The controller's speaker, and headphones plugged into the controller.
 - Works with any game that supports a wired DualSense (tested with Stellar Blade).
 - One switch in the tray. Turn it on once and it starts by itself whenever your DualSense connects.
 - Updates itself from this page's releases.
@@ -19,7 +20,8 @@ Games only use a DualSense's **haptics, adaptive triggers, rumble and light bar*
 
 ## Using it
 
-- Click the tray icon for the menu: status, the **Full DualSense features** switch, *Start with Windows*, updates, the log folder.
+- Click the tray icon for the menu: status, the **Full DualSense features** switch, the **Controller speaker** switch, *Start with Windows*, updates, the log folder.
+- The controller speaker is on by default. In Windows' Sound settings it's listed as *DualSense Controller (HapticLink)*; games find it by themselves, so you don't need to pick it. If haptics ever stutter while the controller plays sound, try turning the speaker off.
 - The switch is remembered. Exiting the tray app doesn't stop the feature (the background service does the work); turn the switch off for that.
 - While it's active, only the virtual controller is visible to games and other apps. Apps that need the real one (for example PeripheralHub for its battery reading) are let through automatically.
 
@@ -28,6 +30,7 @@ Games only use a DualSense's **haptics, adaptive triggers, rumble and light bar*
 - A small user-mode driver (UMDF) adds a virtual DualSense that looks like one connected over USB.
 - The HapticLink service reads your controller over Bluetooth and feeds its buttons, sticks and motion to the virtual one; what games send back (triggers, rumble, lights) is converted into Bluetooth reports.
 - Haptics are audio: games play them on the controller's speaker channels 3 and 4. HapticLink records that audio, resamples it to 3 kHz and streams it to the controller in Bluetooth haptics reports, about 94 a second.
+- The controller's speaker sound is on channels 1 and 2. Once a game plays something there, HapticLink encodes it as Opus (the format the controller expects over Bluetooth) and sends it in the same reports as the haptics.
 - HidHide hides the real controller from games while the feature is on, and the service puts it back when it stops (also after a crash, at its next start).
 
 ## Uninstall
@@ -43,6 +46,8 @@ The service has a control pipe, `\\.\pipe\HapticLink`, open to signed-in users. 
 | `HELLO <app>` | `OK <service version> <protocol>` (protocol is 1). `HELLO PeripheralHub` also lets that app see the real controller while it's hidden. |
 | `STATUS` | `OK <state>\|<enabled 0/1>\|<haptics 0/1>\|<controller MAC>\|<message>`; state is `off`, `waiting`, `starting`, `on` or `error` |
 | `ENABLE` / `DISABLE` | `OK` (the switch, remembered) |
+| `FEATURES` | `OK speaker=<0/1>` (service 1.1.0 and later; more `name=value` pairs may be added) |
+| `SET speaker 0` / `SET speaker 1` | `OK` (the controller speaker switch, remembered) |
 
 Only HapticLink writes to the controller while it's active; other apps should ask HapticLink rather than send output reports themselves.
 
@@ -72,7 +77,8 @@ The background service has its own version (`<Version>` in `src/HapticLink.Servi
 
 - The virtual controller's report descriptor and feature reports come from [punktfunk](https://git.unom.io/unom/punktfunk) (MIT OR Apache-2.0).
 - The driver follows the structure of Microsoft's `vhidmini2` sample.
-- Report formats are documented by Linux's `hid-playstation` driver and the DualSense community.
+- Report formats are documented by Linux's `hid-playstation` driver and the DualSense community. The Bluetooth speaker format follows [LinuxAudio4Dualsense5](https://github.com/ebraminio/LinuxAudio4Dualsense5) and DS5_Bridge.
+- Opus encoding by [Concentus](https://github.com/lostromb/concentus) (BSD).
 
 ## License
 
