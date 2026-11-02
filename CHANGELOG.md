@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.3 (unreleased)
+- Haptics no longer need Steam Remote Play to have been set up once: when Steam's speaker driver isn't installed yet, HapticLink installs it from your own Steam folder (Steam doesn't have to be running).
+- If Steam's speaker driver gets removed while Steam is still installed, HapticLink puts it back, and it keeps using its own speaker device instead of leaving an extra "Speakers" device in Sound settings.
+- Without Steam, the tray says so and shows *Get Steam (for haptics)…*.
+- Service 1.2.3: after updating, HapticLink asks once for administrator rights to update its background service.
+
 ## 1.2.2 (2026-11-02)
 - Setup offers to install HidHide when it's missing: one question, then HapticLink downloads HidHide 1.5.230 from Nefarius's GitHub release, checks it's the exact file, and installs it within the same administrator prompt. Said no? The tray menu has *Install HidHide (admin prompt)…* while it's missing.
 - Service 1.2.2: after updating, HapticLink asks once for administrator rights to update its background service (and offers HidHide then, if it's missing).

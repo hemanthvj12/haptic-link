@@ -18,6 +18,10 @@ internal sealed class TrayApp : ApplicationContext
     {
         ToolTipText = "HidHide (free, by Nefarius) hides the real controller, so games only see HapticLink's and don't drive both.",
     };
+    private readonly ToolStripMenuItem _getSteam = new("Get Steam (for haptics)…")
+    {
+        ToolTipText = "Haptics use Steam's speaker driver. Install Steam and start it once; HapticLink sets up the rest.",
+    };
     private readonly ToolStripMenuItem _toggle = new("Full DualSense features");
     private readonly ToolStripMenuItem _speaker = new("Controller speaker")
     {
@@ -42,6 +46,7 @@ internal sealed class TrayApp : ApplicationContext
 
         _setup.Click += async (_, _) => await RunSetupAsync();
         _hidHide.Click += async (_, _) => await RunSetupAsync(installHidHide: true);
+        _getSteam.Click += (_, _) => Process.Start(new ProcessStartInfo("https://store.steampowered.com/about/") { UseShellExecute = true });
         _toggle.Click += async (_, _) => await ToggleAsync();
         _speaker.Click += async (_, _) => await SetFeatureAsync("speaker", !(_speakerOn ?? true));
         _startup.Click += (_, _) => { try { Startup.Set(!Startup.IsEnabled); } catch (Exception ex) { AppLog.Write($"startup: {ex.Message}"); } Refresh(); };
@@ -55,7 +60,7 @@ internal sealed class TrayApp : ApplicationContext
         var exit = new ToolStripMenuItem("Exit (turns HapticLink off)") { ToolTipText = "Games get the controller back as it is. Starting HapticLink again turns it back on." };
         exit.Click += (_, _) => ExitThread();
 
-        _menu.Items.AddRange([_status, _setup, _hidHide, new ToolStripSeparator(), _toggle, _speaker, new ToolStripSeparator(), _startup, _update, log,
+        _menu.Items.AddRange([_status, _setup, _hidHide, _getSteam, new ToolStripSeparator(), _toggle, _speaker, new ToolStripSeparator(), _startup, _update, log,
             new ToolStripSeparator(), new ToolStripMenuItem($"HapticLink {AppLog.Version}") { Enabled = false }, exit]);
         _menu.Opening += (_, _) => Refresh();
 
@@ -141,6 +146,8 @@ internal sealed class TrayApp : ApplicationContext
         _setup.Enabled = !_busy;
         _hidHide.Visible = running && !_setupNeeded && !ServiceSetup.HidHideInstalled; // "Finish setup" asks about it already
         _hidHide.Enabled = !_busy;
+        // The service says "Steam isn't installed" when it has nothing to take the speaker driver from.
+        _getSteam.Visible = running && s!.Message.Contains("Steam isn't installed", StringComparison.Ordinal);
         _toggle.Enabled = running && !_busy;
         _toggle.Checked = s?.Enabled == true;
         // The speaker switch, indented under the main one; hidden for a service too old to have it.

@@ -29,8 +29,8 @@ internal sealed class SpeakerEndpoint
         {
             try
             {
-                var id = Ensure();
-                _problem = id is null ? "Steam's streaming speaker driver isn't installed" : null;
+                var id = Ensure(out var problem);
+                _problem = problem;
                 return id;
             }
             catch (Exception ex)
@@ -68,18 +68,32 @@ internal sealed class SpeakerEndpoint
         if (ensure is { IsCompletedSuccessfully: true, Result: { } id }) Audio.SetVisible(id, false);
     }
 
-    /// <summary>Finds or makes the devnode, binds Steam's driver, stamps the endpoint; returns its id.</summary>
-    private static string? Ensure()
+    /// <summary>
+    /// Finds or makes the devnode, binds Steam's driver (adding it from Steam's own files when Remote Play never installed
+    /// it), stamps the endpoint; returns its id, or null with the reason.
+    /// </summary>
+    private static string? Ensure(out string? problem)
     {
+        problem = null;
         string? inf = FindSteamInf(SteamHardwareId);
         if (inf is null)
         {
-            Log.Write("speaker endpoint: Steam's streaming speaker driver isn't installed (Steam Remote Play installs it); no haptics");
-            return null;
+            Log.Write("speaker endpoint: Steam's streaming speaker driver isn't installed; adding it from Steam's files");
+            var why = SteamSpeakerDriver.TryAdd();
+            if (why is null) inf = FindSteamInf(SteamHardwareId);
+            if (inf is null)
+            {
+                problem = why ?? "Steam's streaming speaker driver isn't installed";
+                Log.Write($"speaker endpoint: {problem}; no haptics");
+                return null;
+            }
+            // Devnodes left without it (ours, Steam's, other apps') get it back before ours is looked for.
+            Devnodes.BindDriver(SteamHardwareId, inf);
         }
         string? before = Audio.DefaultId(capture: false);
-        string instance = Devnodes.FindMarked(MediaClass, MarkerValue, 0) ?? Devnodes.CreateRootDevnode(MediaClass, "MEDIA",
+        string instance = Devnodes.FindMarked(MediaClass, MarkerValue, 0) ?? Readopt() ?? Devnodes.CreateRootDevnode(MediaClass, "MEDIA",
             "HapticLink Pad Audio", SteamHardwareId, MarkerValue, 0);
+        Remember(instance);
         string? endpoint = FindEndpoint(instance, capture: false);
         if (endpoint is null)
         {
@@ -125,5 +139,30 @@ internal sealed class SpeakerEndpoint
     ];
 
     /// <summary>Removes the speaker devnode (uninstall).</summary>
-    public static void RemoveDevnode() => AudioDevices.RemoveDevnode(MarkerValue, "speaker");
+    public static void RemoveDevnode()
+    {
+        if (Devnodes.FindMarked(MediaClass, MarkerValue, 0) is null) Readopt();
+        AudioDevices.RemoveDevnode(MarkerValue, "speaker");
+    }
+
+    // The devnode's instance id is kept in HapticLink's own key too: the marker lives in Device Parameters, which go when
+    // Steam's driver package is uninstalled (Steam uninstalled, or removed by hand), and without it a new devnode was made
+    // while the old one stayed behind as a visible plain "Speakers" device (2026-11-02).
+    private const string Key = @"SOFTWARE\HapticLink";
+    private const string InstanceValue = "SpeakerDevnode";
+
+    private static string? Readopt()
+    {
+        string? id;
+        using (var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(Key)) id = key?.GetValue(InstanceValue) as string;
+        if (id is null || !Devnodes.Remark(id, SteamHardwareId, MarkerValue, 0)) return null;
+        Log.Write($"speaker endpoint: marked {id} as ours again (its driver had been uninstalled)");
+        return id;
+    }
+
+    private static void Remember(string instance)
+    {
+        using var key = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(Key);
+        if (key.GetValue(InstanceValue) as string != instance) key.SetValue(InstanceValue, instance);
+    }
 }

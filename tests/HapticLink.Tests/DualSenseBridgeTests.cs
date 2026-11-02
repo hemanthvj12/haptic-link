@@ -170,4 +170,38 @@ public class DualSenseBridgeTests
         const string path = @"\\?\hid#{00001124-0000-1000-8000-00805f9b34fb}_vid&0002054c_pid&0ce6#b&311692c8&11&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";
         Assert.Equal(@"HID\{00001124-0000-1000-8000-00805F9B34FB}_VID&0002054C_PID&0CE6\B&311692C8&11&0000", PadConnection.InstanceIdOf(path));
     }
+
+    [Fact]
+    public void Steam_driver_entries_are_read_from_a_streamed_zip()
+    {
+        // Written to a non-seekable stream, entries get data descriptors like Steam's drivers.exe; a few junk bytes
+        // in front stand in for the exe part.
+        var inf = System.Text.Encoding.ASCII.GetBytes(string.Concat(Enumerable.Repeat("[Version] Signature=$Windows NT$\r\n", 50)));
+        var sys = Enumerable.Range(0, 5000).Select(i => (byte)(i * 7)).ToArray();
+        var buffer = new MemoryStream();
+        buffer.Write([0x4D, 0x5A, 0x90, 0x00]);
+        using (var zip = new System.IO.Compression.ZipArchive(new NonSeekable(buffer), System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var (name, data) in new[] { ("drivers/Windows10/x64/SteamStreamingSpeakers.inf", inf), ("drivers/Windows10/x64/SteamStreamingSpeakers.sys", sys) })
+                using (var entry = zip.CreateEntry(name).Open()) entry.Write(data);
+        }
+        var bytes = buffer.ToArray();
+        Assert.Equal(inf, SteamSpeakerDriver.Extract(bytes, "drivers/windows10/x64/steamstreamingspeakers.inf"));
+        Assert.Equal(sys, SteamSpeakerDriver.Extract(bytes, "drivers/Windows10/x64/SteamStreamingSpeakers.sys"));
+        Assert.Null(SteamSpeakerDriver.Extract(bytes, "drivers/Windows10/x64/steamstreamingspeakers.cat"));
+    }
+
+    private sealed class NonSeekable(Stream inner) : Stream
+    {
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() => inner.Flush();
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => inner.Write(buffer, offset, count);
+    }
 }

@@ -30,6 +30,41 @@ internal static class Devnodes
         finally { SetupDiDestroyDeviceInfoList(set); }
     }
 
+    /// <summary>
+    /// Writes the marker again on <paramref name="instanceId"/> when that devnode still exists with
+    /// <paramref name="hardwareId"/>; false otherwise. Uninstalling its driver package wipes Device Parameters, marker
+    /// included (seen 2026-11-02 after `pnputil /delete-driver /uninstall` of Steam's speaker driver).
+    /// </summary>
+    public static bool Remark(string instanceId, string hardwareId, string marker, int value)
+    {
+        // No class filter: a devnode without a driver may not be in its old class any more.
+        IntPtr set = SetupDiCreateDeviceInfoList(IntPtr.Zero, IntPtr.Zero);
+        if (set == new IntPtr(-1)) return false;
+        try
+        {
+            var data = NewData();
+            if (!SetupDiOpenDeviceInfoW(set, instanceId, IntPtr.Zero, 0, ref data))
+            {
+                Log.Write($"devnode {instanceId}: not found ({Marshal.GetLastWin32Error()})");
+                return false;
+            }
+            if (!MultiSz(set, ref data, 1 /* SPDRP_HARDWAREID */).Any(h => h.Equals(hardwareId, StringComparison.OrdinalIgnoreCase)))
+            {
+                Log.Write($"devnode {instanceId}: hardware id isn't {hardwareId} any more");
+                return false;
+            }
+            using var key = OpenDeviceParameters(set, ref data, write: true);
+            if (key is null)
+            {
+                Log.Write($"devnode {instanceId}: couldn't open Device Parameters ({Marshal.GetLastWin32Error()})");
+                return false;
+            }
+            key.SetValue(marker, value, RegistryValueKind.DWord);
+            return true;
+        }
+        finally { SetupDiDestroyDeviceInfoList(set); }
+    }
+
     /// <summary>The installed INF (full path) of a devnode of this class carrying <paramref name="hardwareId"/>.</summary>
     public static string? InfOfHardwareId(Guid classGuid, string hardwareId)
     {

@@ -16,7 +16,7 @@ Games only use a DualSense's **haptics, adaptive triggers, rumble and light bar*
 
 **You also need:**
 - **HidHide** ([Nefarius](https://github.com/nefarius/HidHide/releases)), which hides the real controller from games so they only use the wired one HapticLink gives them (otherwise games drive both and triggers feel wrong). If it isn't installed, HapticLink's setup offers to download and install it for you (or use *Install HidHide…* in the tray menu later).
-- **Steam** with Remote Play set up at least once, for haptics: HapticLink uses Steam's *Streaming Speakers* audio driver as the controller's speaker. Without it, triggers, rumble and lights still work.
+- **Steam**, for haptics: HapticLink uses Steam's *Streaming Speakers* audio driver as the controller's speaker, and installs that driver from your Steam folder if Steam hasn't yet (you don't need to have used Remote Play, or to keep Steam running). Without Steam, triggers, rumble and lights still work, and the tray menu has a *Get Steam* link.
 
 ## Using it
 
