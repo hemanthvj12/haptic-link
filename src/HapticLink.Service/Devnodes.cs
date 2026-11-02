@@ -90,6 +90,34 @@ internal static class Devnodes
         throw new Win32Exception(error, $"installing {Path.GetFileName(inf)}");
     }
 
+    /// <summary>
+    /// Copies a device's friendly name into its description when they differ; returns the old description, or null when
+    /// nothing changed. Windows keeps an audio endpoint's device (SWD\MMDEVAPI\…) description from when the endpoint first
+    /// registered, and Sound settings shows its second line from it: renaming the endpoint updated the friendly name but
+    /// left the description saying "Wireless Controller (4- DualSense Wireless Controller)" through audio and device
+    /// restarts (2026-11-02). Writing it is what fixed the display.
+    /// </summary>
+    public static string? SyncDescription(string instanceId)
+    {
+        IntPtr set = SetupDiCreateDeviceInfoList(IntPtr.Zero, IntPtr.Zero);
+        if (set == new IntPtr(-1)) return null;
+        try
+        {
+            var data = NewData();
+            if (!SetupDiOpenDeviceInfoW(set, instanceId, IntPtr.Zero, 0, ref data)) return null;
+            var key = new DevPropKey { Format = new("a45c254e-df1c-4efd-8020-67d146a850e0"), Id = 14 }; // DEVPKEY_Device_FriendlyName
+            var buffer = new byte[1024];
+            if (!SetupDiGetDevicePropertyW(set, ref data, ref key, out _, buffer, buffer.Length, out int size, 0)) return null;
+            string friendly = System.Text.Encoding.Unicode.GetString(buffer, 0, Math.Max(0, size - 2));
+            string description = SetupDiGetDeviceRegistryPropertyW(set, ref data, 0 /* SPDRP_DEVICEDESC */, out _, buffer, buffer.Length, out size)
+                ? System.Text.Encoding.Unicode.GetString(buffer, 0, Math.Max(0, size - 2)) : "";
+            if (friendly.Length == 0 || friendly == description) return null;
+            var bytes = System.Text.Encoding.Unicode.GetBytes(friendly + "\0");
+            return SetupDiSetDeviceRegistryPropertyW(set, ref data, 0, bytes, bytes.Length) ? description : null;
+        }
+        finally { SetupDiDestroyDeviceInfoList(set); }
+    }
+
     private static SpDevinfoData NewData() => new() { Size = Marshal.SizeOf<SpDevinfoData>() };
 
     private static string? InstanceId(IntPtr set, ref SpDevinfoData data)
@@ -127,6 +155,10 @@ internal static class Devnodes
     private static extern IntPtr SetupDiGetClassDevsW(ref Guid classGuid, string? enumerator, IntPtr parent, int flags);
     [DllImport("setupapi.dll", SetLastError = true)]
     private static extern IntPtr SetupDiCreateDeviceInfoList(ref Guid classGuid, IntPtr parent);
+    [DllImport("setupapi.dll", SetLastError = true)]
+    private static extern IntPtr SetupDiCreateDeviceInfoList(IntPtr classGuid, IntPtr parent);
+    [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool SetupDiOpenDeviceInfoW(IntPtr set, string instanceId, IntPtr parent, int flags, ref SpDevinfoData data);
     [DllImport("setupapi.dll", SetLastError = true)]
     private static extern bool SetupDiEnumDeviceInfo(IntPtr set, uint index, ref SpDevinfoData data);
     [DllImport("setupapi.dll", SetLastError = true)]

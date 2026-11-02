@@ -89,6 +89,8 @@ internal sealed class SpeakerEndpoint
         }
 
         bool served = StampAll(endpoint, Stamps, "speaker endpoint");
+        if (Devnodes.SyncDescription(@"SWD\MMDEVAPI\" + endpoint) is { } old)
+            Log.Write($"speaker endpoint: Sound settings' name brought up to date (was \"{old}\")");
         Audio.SetVisible(endpoint, false);
         Audio.KeepDefault(before, endpoint, capture: false);
         Log.Write($"speaker endpoint ready: {endpoint} ({instance}), stamps served: {served}");
