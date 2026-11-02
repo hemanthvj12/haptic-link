@@ -61,7 +61,7 @@ internal sealed class HapticLinkService : IDisposable
                 return;
             }
             if (_bridge is { Alive: false }) StopBridge("controller disconnected");
-            if (_bridge is not null) return;
+            if (_bridge is not null) { ShowOn(_bridge); return; }
 
             var paths = PadConnection.FindBluetoothPads();
             if (paths.Count == 0) { Set("waiting", "Waiting for a DualSense connected over Bluetooth."); return; }
@@ -74,15 +74,26 @@ internal sealed class HapticLinkService : IDisposable
                 var allowed = new List<string> { Environment.ProcessPath! };
                 allowed.AddRange(_readers);
                 _bridge = Bridge.Start(pad, _speaker, allowed);
-                Set("on", _bridge.HasHaptics
-                    ? "On: games see a wired DualSense (haptics, adaptive triggers, rumble, lights)."
-                    : "On without haptics: Steam's streaming speaker driver isn't installed (triggers, rumble and lights work).");
+                ShowOn(_bridge);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
             {
                 Fail(ex.Message);
             }
         }
+    }
+
+    // Checked every second while on, so the message follows haptics recording as it starts, fails or recovers.
+    private void ShowOn(Bridge bridge)
+    {
+        if (bridge.HasHaptics)
+            Set("on", "On: games see a wired DualSense (haptics, adaptive triggers, rumble, lights).");
+        else if (!bridge.HasSpeaker) // set up again at the next start: turning HapticLink off and on retries it
+            Set("on", $"On without haptics: {_speaker.Problem ?? "Steam's streaming speaker driver isn't installed"} (triggers, rumble and lights work).");
+        else if (DateTime.UtcNow - bridge.StartedAt < TimeSpan.FromSeconds(10)) // a first failure often clears in a second
+            Set("on", "On: games see a wired DualSense; starting haptics.");
+        else
+            Set("on", $"On without haptics: {bridge.HapticsProblem ?? "couldn't record the controller's speaker"}. Retrying; triggers, rumble and lights work.");
     }
 
     private void Fail(string message)

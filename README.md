@@ -46,7 +46,7 @@ The service has a control pipe, `\\.\pipe\HapticLink`, open to signed-in users. 
 
 Only HapticLink writes to the controller while it's active; other apps should ask HapticLink rather than send output reports themselves.
 
-STATUS's haptics flag means the controller's speaker is set up; the service log (`%ProgramData%\HapticLink\service.log`) says "recording the pad speaker" once haptics actually flow.
+STATUS's haptics flag is 1 while HapticLink is recording the controller's speaker, so a game's haptics reach the controller. While recording fails it's 0 and the message says why (HapticLink keeps retrying; the flag goes back to 1 when it works).
 
 ## Building
 

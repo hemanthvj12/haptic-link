@@ -28,7 +28,12 @@ internal sealed class Bridge : IDisposable
     private Thread? _pump;
     private byte _sequence;
 
-    public bool HasHaptics => _haptics is not null;
+    /// <summary>Haptics reach the pad: Steam's speaker driver is there and its speaker is being recorded.</summary>
+    public bool HasHaptics => _haptics?.Recording == true;
+    /// <summary>The speaker could be set up (Steam's driver is installed); recording it may still be failing.</summary>
+    public bool HasSpeaker => _haptics is not null;
+    public string? HapticsProblem => _haptics?.Problem;
+    public DateTime StartedAt { get; } = DateTime.UtcNow;
     public string Mac => _pad.Mac;
     /// <summary>The pad is still connected and sending (a Bluetooth pad in full mode streams non-stop).</summary>
     public bool Alive => !_pad.IsClosed && DateTime.UtcNow - _pad.LastReportAt < TimeSpan.FromSeconds(4);
@@ -66,7 +71,7 @@ internal sealed class Bridge : IDisposable
                 bridge._haptics = new HapticsRelay(endpoint, report => pad.Write(report.Span), Log.Write);
                 bridge._haptics.Start();
             }
-            Log.Write($"bridge started: {pad.InstanceId}{(bridge.HasHaptics ? "" : " (no haptics: Steam's speaker driver isn't installed)")}");
+            Log.Write($"bridge started: {pad.InstanceId}{(bridge.HasSpeaker ? "" : $" (no haptics: {speaker.Problem})")}");
             return bridge;
         }
         catch

@@ -35,7 +35,15 @@ internal sealed unsafe class HapticsRelay : IDisposable
     private readonly AutoResetEvent _arrived = new(false);
     private readonly CancellationTokenSource _cts = new();
     private long _lastArrival;
+    private volatile bool _recording;
+    private volatile string? _problem;
     private Thread? _capture, _sender;
+
+    /// <summary>The pad speaker is being recorded, so a game's haptics reach the pad (STATUS's haptics flag).</summary>
+    public bool Recording => _recording;
+
+    /// <summary>Why recording keeps failing (it retries every second), or null.</summary>
+    public string? Problem => _problem;
 
     public HapticsRelay(string endpointId, Func<ReadOnlyMemory<byte>, bool> write, Action<string> log)
     {
@@ -69,6 +77,8 @@ internal sealed unsafe class HapticsRelay : IDisposable
             }
             catch (Exception ex) when (ex is COMException or InvalidOperationException or InvalidCastException)
             {
+                _recording = false;
+                _problem = ex.Message;
                 if (ex.Message != lastError) _log($"haptics: {ex.Message}; retrying");
                 lastError = ex.Message;
             }
@@ -96,6 +106,8 @@ internal sealed unsafe class HapticsRelay : IDisposable
             Check(client.Start(), "start recording");
             int rate = *(int*)(format + 4);
             _log($"haptics: recording the pad speaker ({channels} ch, {bits}-bit, {EnginePeriod(client, format, rate)})");
+            _recording = true;
+            _problem = null;
 
             var decimator = new Decimator();
             var block = new sbyte[DualSenseReports.HapticsSamples];
@@ -273,6 +285,7 @@ internal sealed unsafe class HapticsRelay : IDisposable
 
     public void Dispose()
     {
+        _recording = false;
         _cts.Cancel();
         _capture?.Join(1000);
         _sender?.Join(1000);

@@ -25,13 +25,27 @@ internal sealed class SpeakerEndpoint
 
     private readonly object _gate = new();
     private Task<string?>? _ensure;
+    private volatile string? _problem;
+
+    /// <summary>Why there's no speaker (so no haptics), for the status message; null when it's ready.</summary>
+    public string? Problem => _problem;
 
     public void EnsureInBackground()
     {
         lock (_gate) _ensure ??= Task.Run(() =>
         {
-            try { return Ensure(); }
-            catch (Exception ex) { Log.Write($"speaker endpoint: {ex}"); return null; }
+            try
+            {
+                var id = Ensure();
+                _problem = id is null ? "Steam's streaming speaker driver isn't installed" : null;
+                return id;
+            }
+            catch (Exception ex)
+            {
+                Log.Write($"speaker endpoint: {ex}");
+                _problem = $"couldn't set up the controller's speaker ({ex.Message})";
+                return null;
+            }
         });
     }
 
@@ -108,6 +122,10 @@ internal sealed class SpeakerEndpoint
         string want = "{1}." + instance;
         foreach (var name in root.GetSubKeyNames())
         {
+            // A removed devnode's endpoint lingers as "not present" (0x4) and a new devnode can get the same instance id:
+            // matching it skipped binding the new devnode's driver, so it never got an endpoint (2026-11-02).
+            using (var endpointKey = root.OpenSubKey(name))
+                if (endpointKey?.GetValue("DeviceState") is int state && (state & 0x4) != 0) continue;
             using var props = root.OpenSubKey(name + @"\Properties");
             if (props?.GetValue("{b3f8fa53-0004-438e-9003-51a46e139bfc},2") is string link && link.Equals(want, StringComparison.OrdinalIgnoreCase))
                 return "{0.0.0.00000000}." + name;

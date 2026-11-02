@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1 (2026-11-02)
+- The tray says "on (no haptics)", with the reason, when haptics can't be recorded, instead of claiming they work; it goes back to normal by itself once recording works. PeripheralHub sees the same.
+- Fixed: if the controller's speaker device had been removed, HapticLink could mistake its leftover entry for a working speaker and set up the new one without its driver, so haptics never started.
+- Service 1.0.1: after updating, HapticLink asks once for administrator rights to update its background service.
+
 ## 1.0.0 (2026-11-02)
 - First release: haptics, adaptive triggers, rumble and light bar for a DualSense connected over Bluetooth.
 - Tray switch "Full DualSense features", remembered; the feature starts by itself when the controller connects.
