@@ -12,6 +12,8 @@
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <Version>1.0.0</Version>
+    <!-- Smaller memory: no background GC thread, and the GC keeps the heap compact. -->
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
     <Product>HapticLink for DualSense</Product>
     <Description>Haptics, adaptive triggers, rumble and lights for a DualSense on Bluetooth.</Description>
   </PropertyGroup>
@@ -44,5 +46,9 @@
     <RemoveDir Directories="$(PublishDir)service" />
     <Copy SourceFiles="@(ServiceFile)" DestinationFiles="@(ServiceFile->'$(PublishDir)service\%(RecursiveDir)%(Filename)%(Extension)')" />
   </Target>
+
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="5" />
+  </ItemGroup>
 
 </Project>
