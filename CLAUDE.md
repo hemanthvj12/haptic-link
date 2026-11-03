@@ -35,7 +35,7 @@ HapticLink for DualSense gives games a virtual wired DualSense fed by a real one
 - A Bluetooth pad once showed "Driver error" (code 10) and had to be re-paired; cause unproven (half-asleep pad with the bridge holding handles). The bridge now lets go after 3 s of silence and refuses to start when the feature reads fail.
 
 ## With PeripheralHub
-- Owner's rule: **only HapticLink talks to the controller** while it's active. PeripheralHub reads battery (allowed through HidHide via `HELLO PeripheralHub`), shows the waves on the real pad's tile, hides the virtual pad (origin `HLINK_PAD`), and its menu switch sends ENABLE/DISABLE. Future DualSense controls (mic/speaker mute over Bluetooth) go through this pipe; on a cable PeripheralHub can use Windows audio itself.
+- PeripheralHub reads the real pad's battery and, since its 1.3.0, its paired devices (feature 0x0B, one per PS + △ ○ ✕ □; layout in PeripheralHub's CLAUDE.md), allowed through HidHide via `HELLO PeripheralHub`. It shows the waves on the real pad's tile, hides the virtual pad (origin `HLINK_PAD`), and its menu switch sends ENABLE/DISABLE. Future DualSense controls (mic/speaker mute over Bluetooth) go through this pipe; on a cable PeripheralHub can use Windows audio itself.
 
 ## Working from this session
 - Commands run inside the Claude desktop app's MSIX sandbox (AppData writes are redirected); start exes through Explorer (`Start-Process explorer.exe -ArgumentList '"<path>"'`) to run them outside it. UAC (`runas`) children run outside too.
