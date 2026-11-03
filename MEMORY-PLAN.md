@@ -9,11 +9,18 @@ Figures are Task Manager's (private working set), bridge on with haptics running
 ## On this branch
 - Tray only: `ConcurrentGarbageCollection=false` and `System.GC.ConserveMemory=5`. No behaviour change.
 
-## Next (owner chose: no Rust rewrite)
-1. Check the tray after a few hours (does it still creep to ~20 MB?).
-2. Optional, low risk: tray `InvariantGlobalization`; hand memory back after the setup window closes.
-3. The service is where the rest is. Native AOT (~5–10 MB) needs the ~20 `[ComImport]` interfaces (Audio.cs, ComObjects.cs, HapticsRelay.cs) converted to `[GeneratedComInterface]` and an in-game haptics/speaker retest.
-4. Tray without WinForms (~3–5 MB): only if still wanted after 1–3.
+## Decision (owner, 2026-11-03): the tray first, split in two
+"It should not take any resources; all work is being done by the service anyway." No Rust rewrite.
+- `HapticLink.exe`: new always-on tray, C# with Native AOT and plain Win32 (Shell_NotifyIcon, popup menu), no WinForms: icon + menu, STATUS poll, ATTACH connection, Start with Windows, double-input check, Velopack install/uninstall hooks. Two ready-made `.ico` files (active/idle) instead of drawing them at startup. Target ~1–3 MB (now ~14).
+- `HapticLink.Setup.exe`: today's WinForms setup window, unchanged, started only when needed (first start, "Set up HapticLink…", "Needs setup", Repair) and closed afterwards.
+- Update check: out of the always-on tray, in a short-lived process once a day.
+- Kept: exe name, Run-key entry, install folder, pipe protocol. The service isn't touched (no in-game retest).
+- Check first: whether Velopack's library works under Native AOT; if not, install/update steps go into the setup exe.
+- Retest: every menu item, the setup window in each case, Exit turning HapticLink off, one real update from a local package.
+- Not started yet. The GC settings above become moot for the tray once it's AOT (keep them for the setup exe).
+
+## Later
+- Native AOT for the service (~31 → ~5–10 MB): the ~20 `[ComImport]` interfaces (Audio.cs, ComObjects.cs, HapticsRelay.cs) to `[GeneratedComInterface]`, then an in-game haptics/speaker retest.
 
 How it was tested: `artifacts\memtrim-swap.ps1` (not in git) stops the service, swaps in the published exe and starts it; `-Restore` puts the original back (kept in `artifacts`). The installed service and tray are the 1.2.3 release again.
 
