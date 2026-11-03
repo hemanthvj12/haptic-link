@@ -20,8 +20,6 @@
     <PublishSingleFile>true</PublishSingleFile>
     <DebugType>embedded</DebugType>
     <InvariantGlobalization>true</InvariantGlobalization>
-    <!-- Smaller memory: no background GC thread, and the GC keeps the heap compact. -->
-    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>
@@ -31,10 +29,6 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="HapticLink.Tests" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="5" />
   </ItemGroup>
 
 </Project>
