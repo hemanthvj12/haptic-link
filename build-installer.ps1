@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     - Builds the service folder (drivers\build-service.ps1: service, helper, signed driver).
-    - Publishes the tray app (single exe + "service" folder) with the given version.
+    - Publishes the tray (HapticLink.exe, Native AOT), the setup window (HapticLink.Setup.exe) and the "service" folder.
     - Packs it with Velopack (vpk, pinned in .config/dotnet-tools.json) into artifacts\installer:
         HapticLink-win-Setup.exe     the installer (per user, no admin rights; installs the .NET 8 Desktop Runtime
                                      if it's missing). The app's first start runs the one-time setup (one admin prompt).
@@ -85,9 +85,18 @@ try {
     & (Join-Path $repo 'drivers\build-service.ps1') @serviceArgs
 
     Write-Host "Publishing version $Version..."
-    dotnet publish 'src\HapticLink.App\HapticLink.App.csproj' -c Release -o $publishDir -p:Version=$Version --nologo -v quiet
-    if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed ($LASTEXITCODE)" }
-    Get-ChildItem $publishDir -File | Where-Object Name -ne 'HapticLink.exe' | Remove-Item -Force
+    # The tray (HapticLink.exe) is Native AOT, which links with MSVC. .NET 8 only finds Visual Studio 2019/2022 by itself,
+    # so the publish runs inside vcvars64 of whichever Visual Studio has the C++ tools, using the linker on its PATH.
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    $vs = & $vswhere -latest -prerelease -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+    if (-not $vs) { throw 'The tray needs the MSVC linker: install Visual Studio with "Desktop development with C++".' }
+    $vcvars = Join-Path $vs 'VC\Auxiliary\Build\vcvars64.bat'
+    cmd /c "`"$vcvars`" >nul 2>nul && dotnet publish src\HapticLink.Tray\HapticLink.Tray.csproj -c Release -o `"$publishDir`" -p:Version=$Version -p:IlcUseEnvironmentalTools=true --nologo -v quiet"
+    if ($LASTEXITCODE -ne 0) { throw "tray publish failed ($LASTEXITCODE)" }
+    # The setup window (HapticLink.Setup.exe, WinForms) and the "service" folder, next to the tray.
+    dotnet publish 'src\HapticLink.Setup\HapticLink.Setup.csproj' -c Release -o $publishDir -p:Version=$Version --nologo -v quiet
+    if ($LASTEXITCODE -ne 0) { throw "setup publish failed ($LASTEXITCODE)" }
+    Get-ChildItem $publishDir -File | Where-Object Name -notin 'HapticLink.exe', 'HapticLink.Setup.exe' | Remove-Item -Force
     if (-not (Test-Path (Join-Path $publishDir 'service\HapticLink.Service.exe'))) { throw 'No service folder was published.' }
 
     if ($Publish) {
@@ -105,7 +114,7 @@ try {
         --mainExe HapticLink.exe `
         --packTitle 'HapticLink for DualSense' `
         --packAuthors 'hemanthvj12' `
-        --icon 'src\HapticLink.App\Assets\app.ico' `
+        --icon 'src\HapticLink.Shared\Assets\app.ico' `
         --runtime win-x64 `
         --framework net8-x64-desktop `
         --shortcuts StartMenuRoot `

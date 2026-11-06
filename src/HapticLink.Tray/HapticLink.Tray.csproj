@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    HapticLink.exe: the tray icon and its menu, running all the time. Native AOT and plain Win32 (no WinForms) so it
+    takes almost no memory (owner, 2026-11-03: "it should not take any resources; all work is being done by the service").
+    The setup window is HapticLink.Setup.exe (src\HapticLink.Setup), started only when it's needed.
+    Publishing needs the MSVC linker: .NET 8 only finds Visual Studio 2019/2022 by itself, so build-installer.ps1 runs
+    the publish inside vcvars64 with IlcUseEnvironmentalTools.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>HapticLink.App</RootNamespace>
+    <AssemblyName>HapticLink</AssemblyName>
+    <ApplicationIcon>..\HapticLink.Shared\Assets\app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>1.0.0</Version>
+    <Product>HapticLink for DualSense</Product>
+    <Description>Haptics, adaptive triggers, rumble and lights for a DualSense on Bluetooth.</Description>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishAot>true</PublishAot>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Smaller memory: no background GC thread, and the GC keeps the heap compact. -->
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Keep in step with the vpk tool version in .config/dotnet-tools.json. -->
+    <PackageReference Include="Velopack" Version="1.2.161" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\HapticLink.Shared\*.cs" LinkBase="Shared" />
+    <EmbeddedResource Include="..\HapticLink.Shared\Assets\app.ico" LogicalName="tray-on.ico" />
+    <EmbeddedResource Include="..\HapticLink.Shared\Assets\tray-off.ico" LogicalName="tray-off.ico" />
+    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="5" />  </ItemGroup>
+
+</Project>

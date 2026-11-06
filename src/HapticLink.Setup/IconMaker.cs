@@ -61,13 +61,13 @@ internal static class IconMaker
         return p;
     }
 
-    /// <summary>Writes a multi-size .ico (PNG frames), e.g. Assets\app.ico.</summary>
-    public static void WriteIco(string path)
+    /// <summary>Writes a multi-size .ico (PNG frames): Assets\app.ico (also the tray's "on" icon) or, idle, tray-off.ico.</summary>
+    public static void WriteIco(string path, bool active = true)
     {
         int[] sizes = [16, 20, 24, 32, 40, 48, 64, 128, 256];
         var frames = sizes.Select(size =>
         {
-            using var bmp = Draw(size, active: true);
+            using var bmp = Draw(size, active);
             using var ms = new MemoryStream();
             bmp.Save(ms, ImageFormat.Png);
             return (size, data: ms.ToArray());

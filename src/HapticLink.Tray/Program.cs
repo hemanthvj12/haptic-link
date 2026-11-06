@@ -1,12 +1,12 @@
+using System.Diagnostics;
 using Velopack;
 
 namespace HapticLink.App;
 
 /// <summary>
-/// Entry point. Velopack (installer/updater) runs first: Setup and the uninstaller start the exe with its own arguments,
-/// run the matching hook and exit. It also applies a downloaded update on startup. One copy runs at a time.
-///   --write-icon &lt;file.ico&gt;   writes the app icon (used once to make Assets\app.ico)
-///   --setup                    opens only the setup window
+/// HapticLink.exe, the tray. Velopack (installer/updater) runs first: Setup and the uninstaller start the exe with its own
+/// arguments, run the matching hook and exit. It also applies a downloaded update on startup. One copy runs at a time.
+///   --setup    opens only the setup window (HapticLink.Setup.exe; also while the tray runs)
 /// </summary>
 public static class Program
 {
@@ -18,23 +18,19 @@ public static class Program
             .OnBeforeUninstallFastCallback(_ => Installation.BeforeUninstall())
             .Run();
 
-        if (args is ["--write-icon", var path]) { IconMaker.WriteIco(path); return 0; }
         if (args is ["--setup"])
         {
-            // The setup window on its own (also while the tray app runs): for checking it, or setting up again by hand.
-            ApplicationConfiguration.Initialize();
-            Application.Run(new SetupWindow(required: false));
+            // The setup window on its own: for checking it, or setting up again by hand.
+            Process.Start(Path.Combine(AppContext.BaseDirectory, "HapticLink.Setup.exe"))?.Dispose();
             return 0;
         }
 
         using var single = new Mutex(true, @"Local\HapticLink.App", out bool first);
         if (!first) return 0;
 
-        ApplicationConfiguration.Initialize();
         AppLog.CatchUnhandled();
         AppLog.Write($"HapticLink {AppLog.Version} starting from {Environment.ProcessPath}");
-        Application.Run(new TrayApp());
-        return 0;
+        return new Tray().Run();
     }
 }
 

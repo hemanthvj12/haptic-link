@@ -1,6 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- HapticLink's tray app: the on/off switch, status, one-time setup, start with Windows and updates. -->
+  <!--
+    HapticLink.Setup.exe: the setup window (WinForms). The tray (HapticLink.exe, src\HapticLink.Tray) starts it only when
+    it's needed and it exits when closed, so WinForms isn't kept in memory. Shares src\HapticLink.Shared with the tray.
+  -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
@@ -8,19 +11,19 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>HapticLink.App</RootNamespace>
-    <AssemblyName>HapticLink</AssemblyName>
-    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <AssemblyName>HapticLink.Setup</AssemblyName>
+    <ApplicationIcon>..\HapticLink.Shared\Assets\app.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <Version>1.0.0</Version>
+    <Product>HapticLink for DualSense</Product>
+    <Description>HapticLink setup</Description>
     <!-- Smaller memory: no background GC thread, and the GC keeps the heap compact. -->
     <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
-    <Product>HapticLink for DualSense</Product>
-    <Description>Haptics, adaptive triggers, rumble and lights for a DualSense on Bluetooth.</Description>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Keep in step with the vpk tool version in .config/dotnet-tools.json. -->
-    <PackageReference Include="Velopack" Version="1.2.161" />
+    <Compile Include="..\HapticLink.Shared\*.cs" LinkBase="Shared" />
+    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="5" />
   </ItemGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
@@ -30,7 +33,7 @@
     <DebugType>embedded</DebugType>
   </PropertyGroup>
 
-  <!-- The service folder (drivers\build-service.ps1 builds it into artifacts\service) ships as "service" next to the exe. -->
+  <!-- The service folder (drivers\build-service.ps1 builds it into artifacts\service) ships as "service" next to the exes. -->
   <Target Name="CopyServiceToOutput" AfterTargets="Build" Condition="Exists('$(MSBuildThisFileDirectory)..\..\artifacts\service\HapticLink.Service.exe')">
     <ItemGroup>
       <ServiceFile Include="$(MSBuildThisFileDirectory)..\..\artifacts\service\**\*" />
@@ -46,9 +49,5 @@
     <RemoveDir Directories="$(PublishDir)service" />
     <Copy SourceFiles="@(ServiceFile)" DestinationFiles="@(ServiceFile->'$(PublishDir)service\%(RecursiveDir)%(Filename)%(Extension)')" />
   </Target>
-
-  <ItemGroup>
-    <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="5" />
-  </ItemGroup>
 
 </Project>
