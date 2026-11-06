@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.0 (2026-11-06)
+- The tray app takes far less memory: about 5 MB in Task Manager instead of about 14 MB (and up to 20 MB after running for hours), and it no longer grows over time. It's rebuilt as a small native program; the background service, which does the actual work, is unchanged.
+- The setup window is now its own program, `HapticLink.Setup.exe`, started only when it's needed (first start, *Set up HapticLink…*, something missing, Repair) and closed afterwards, so it isn't kept in memory.
+- Update checks run in a short helper that exits when it's done, so checking for updates doesn't leave extra memory in use. *Restart to update* works as before.
+- The tray menu follows Windows' light or dark mode. Its items no longer show hover tips.
+- No administrator prompt after updating: the background service didn't change.
+
 ## 1.2.3 (2026-11-02)
 - Haptics no longer need Steam Remote Play to have been set up once: when Steam's speaker driver isn't installed yet, HapticLink installs it from your own Steam folder (Steam doesn't have to be running).
 - If Steam's speaker driver gets removed while Steam is still installed, HapticLink puts it back, and it keeps using its own speaker device instead of leaving an extra "Speakers" device in Sound settings.
