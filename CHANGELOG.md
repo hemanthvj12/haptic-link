@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.1 (2026-11-07)
+- The background service takes far less memory: about 10 MB while the controller is connected (about 13 MB while the controller speaker plays game sound), instead of about 30 MB. Haptics, adaptive triggers, rumble, lights and the speaker work exactly as before.
+- Service 1.3.1: after updating, HapticLink asks once for administrator rights to update its background service.
+
 ## 1.3.0 (2026-11-06)
 - The tray app takes far less memory: about 5 MB in Task Manager instead of about 14 MB (and up to 20 MB after running for hours), and it no longer grows over time. It's rebuilt as a small native program; the background service, which does the actual work, is unchanged.
 - The setup window is now its own program, `HapticLink.Setup.exe`, started only when it's needed (first start, *Set up HapticLink…*, something missing, Repair) and closed afterwards, so it isn't kept in memory.
