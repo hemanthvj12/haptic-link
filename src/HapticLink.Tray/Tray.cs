@@ -311,8 +311,12 @@ internal sealed unsafe class Tray
             case IdUpdate:
                 if (_updater.ReadyVersion is not null)
                 {
-                    UpdateIcon(NIM_DELETE); // Velopack exits the process straight away
-                    _updater.ApplyAndRestart();
+                    // Exit, and start again: Velopack applies the downloaded update as the new copy starts, then
+                    // restarts it. "--restart" makes the new copy wait for this one to let go of the single-copy lock.
+                    AppLog.Write($"restarting to update to {_updater.ReadyVersion}");
+                    Exit();
+                    try { Process.Start(Environment.ProcessPath!, "--restart")?.Dispose(); }
+                    catch (Exception ex) { AppLog.Write($"restart to update: {ex.Message}"); }
                 }
                 else _ = _updater.CheckAsync(manual: true);
                 break;

@@ -6,13 +6,24 @@ namespace HapticLink.App;
 /// <summary>
 /// HapticLink.exe, the tray. Velopack (installer/updater) runs first: Setup and the uninstaller start the exe with its own
 /// arguments, run the matching hook and exit. It also applies a downloaded update on startup. One copy runs at a time.
-///   --setup    opens only the setup window (HapticLink.Setup.exe; also while the tray runs)
+///   --setup           opens only the setup window (HapticLink.Setup.exe; also while the tray runs)
+///   --check-updates   the tray's update check, run as a short-lived process (see Updater)
+///   --restart         start after "Restart to update": waits for the old copy; Velopack applies the update first
 /// </summary>
 public static class Program
 {
     [STAThread]
     public static int Main(string[] args)
     {
+        if (args is ["--check-updates"])
+        {
+            // The tray's update check, in its own short-lived process (see Updater). It mustn't apply an update it
+            // downloaded earlier: the tray is still running.
+            VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
+            return Updater.RunCheck();
+        }
+
+        // Also applies a downloaded update and restarts (Velopack's auto-apply on startup).
         VelopackApp.Build()
             .OnFirstRun(_ => Installation.FirstRun())
             .OnBeforeUninstallFastCallback(_ => Installation.BeforeUninstall())
@@ -25,8 +36,10 @@ public static class Program
             return 0;
         }
 
-        using var single = new Mutex(true, @"Local\HapticLink.App", out bool first);
-        if (!first) return 0;
+        // One copy at a time. "--restart" (Restart to update) waits a little for the copy that started it to exit.
+        using var single = new Mutex(false, @"Local\HapticLink.App");
+        try { if (!single.WaitOne(args is ["--restart"] ? TimeSpan.FromSeconds(10) : TimeSpan.Zero)) return 0; }
+        catch (AbandonedMutexException) { /* the previous copy exited without letting go: ours now */ }
 
         AppLog.CatchUnhandled();
         AppLog.Write($"HapticLink {AppLog.Version} starting from {Environment.ProcessPath}");

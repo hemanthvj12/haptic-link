@@ -22,7 +22,9 @@
     ./build-installer.ps1 -Version 1.0.0
 #>
 param(
-    [Parameter(Mandatory)] [ValidatePattern('^\d+\.\d+\.\d+$')] [string]$Version,
+    # A suffix (1.2.4-test.1) is for local test installs: Velopack ranks it below 1.2.4, so the real release still
+    # updates over it. The release workflow only accepts plain x.y.z.
+    [Parameter(Mandatory)] [ValidatePattern('^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$')] [string]$Version,
     [switch]$Publish,
     [switch]$Install
 )
