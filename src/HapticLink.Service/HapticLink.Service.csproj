@@ -14,9 +14,9 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>HapticLink.Service</RootNamespace>
     <AssemblyName>HapticLink.Service</AssemblyName>
-    <!-- Task Manager's Processes list shows the exe's description and icon: "HapticLink service" with the app's logo,
+    <!-- Task Manager's Processes list shows the exe's description and icon: "HapticLink Service" with the app's logo,
          next to the tray's "HapticLink" (a service can't be grouped under the tray: Windows starts it). -->
-    <AssemblyTitle>HapticLink service</AssemblyTitle>
+    <AssemblyTitle>HapticLink Service</AssemblyTitle>
     <Product>HapticLink for DualSense</Product>
     <ApplicationIcon>..\HapticLink.Shared\Assets\app.ico</ApplicationIcon>
     <Version>1.3.1</Version>
