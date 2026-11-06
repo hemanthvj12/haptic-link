@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.2 (2026-11-07)
+- Task Manager shows the background service as "HapticLink Service" with HapticLink's logo, next to the HapticLink tray app, instead of "HapticLink.Service" with a blank icon.
+- Service 1.3.2: after updating, HapticLink asks once for administrator rights to update its background service.
+
 ## 1.3.1 (2026-11-07)
 - The background service takes far less memory: about 10 MB while the controller is connected (about 13 MB while the controller speaker plays game sound), instead of about 30 MB. Haptics, adaptive triggers, rumble, lights and the speaker work exactly as before.
 - Service 1.3.1: after updating, HapticLink asks once for administrator rights to update its background service.
