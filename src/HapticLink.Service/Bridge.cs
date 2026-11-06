@@ -185,14 +185,16 @@ internal sealed class Bridge : IDisposable
         try
         {
             var bt = new byte[DualSenseReports.BtOutputLength];
+            // Made once: a lambda here inside the loop was a new delegate a thousand times a second.
+            VirtualPadChannel.ReportHandler forward = usb =>
+            {
+                if (!DualSenseReports.ToBtOutput(usb, _sequence++, bt)) return;
+                NoteAudioFields(usb);
+                _pad.Write(bt);
+            };
             while (!_cts.IsCancellationRequested && _channel is { } channel)
             {
-                channel.ReadOutputs(usb =>
-                {
-                    if (!DualSenseReports.ToBtOutput(usb, _sequence++, bt)) return;
-                    NoteAudioFields(usb);
-                    _pad.Write(bt);
-                });
+                channel.ReadOutputs(forward);
                 Thread.Sleep(1);
             }
         }

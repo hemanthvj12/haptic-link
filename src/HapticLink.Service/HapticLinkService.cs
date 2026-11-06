@@ -47,10 +47,19 @@ internal sealed class HapticLinkService : IDisposable
 
     private void Loop()
     {
+        var lastCollect = DateTime.UtcNow;
         while (!_cts.IsCancellationRequested)
         {
             try { Step(); }
             catch (Exception ex) { Log.Write($"loop: {ex}"); }
+            // The GC's first budget is sized from the CPU cache (megabytes), so the little garbage the bridge still makes
+            // piled up to ~18 MB before a collection came. One every 30 s keeps the service flat; the heap is tiny, so it
+            // takes well under a millisecond (no audible effect on the haptics clock).
+            if (DateTime.UtcNow - lastCollect > TimeSpan.FromSeconds(30))
+            {
+                GC.Collect();
+                lastCollect = DateTime.UtcNow;
+            }
             _wake.WaitOne(1000);
         }
         lock (_gate) StopBridge("service stopping");

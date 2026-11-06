@@ -6,15 +6,18 @@ namespace HapticLink.Service;
 /// <summary>
 /// The real DualSense over Bluetooth: finding it, one continuous reader (a second pending read would swallow reports),
 /// output writes (Windows wants them padded to the output report length) and feature reads.
+/// Reads and writes use the overlapped handle directly with one reused OVERLAPPED each: through a FileStream every read
+/// and write allocated (hundreds a second), which grew the service by ~18 MB of garbage before the GC's first collection.
 /// </summary>
-internal sealed class PadConnection : IDisposable
+internal sealed unsafe class PadConnection : IDisposable
 {
     private const string BluetoothHid = "{00001124-0000-1000-8000-00805f9b34fb}";
-    private readonly FileStream _stream;
+    private readonly SafeFileHandle _handle;
+    private readonly OverlappedIo _readIo = new(), _writeIo = new();
     private readonly object _writeLock = new();
     private readonly byte[] _writeBuffer;
     private readonly int _inputLength;
-    private readonly CancellationTokenSource _cts = new();
+    private volatile bool _closing;
     private Thread? _reader;
 
     public string Path { get; }
@@ -28,10 +31,10 @@ internal sealed class PadConnection : IDisposable
     /// <summary>Each input report; the span is only valid during the call.</summary>
     public event VirtualPadChannel.ReportHandler? Report;
 
-    private PadConnection(string path, FileStream stream, int inputLength, int outputLength, string mac, bool edge)
+    private PadConnection(string path, SafeFileHandle handle, int inputLength, int outputLength, string mac, bool edge)
     {
         Path = path;
-        _stream = stream;
+        _handle = handle;
         _inputLength = inputLength;
         _writeBuffer = new byte[outputLength];
         Mac = mac;
@@ -70,7 +73,7 @@ internal sealed class PadConnection : IDisposable
             : "";
         if (mac.Length != 12) mac = "";
         bool edge = path.Contains("pid&0df2", StringComparison.OrdinalIgnoreCase);
-        return new PadConnection(path, new FileStream(handle, FileAccess.ReadWrite, 0, isAsync: true), input, output, mac, edge);
+        return new PadConnection(path, handle, input, output, mac, edge);
     }
 
     public void Start()
@@ -84,15 +87,16 @@ internal sealed class PadConnection : IDisposable
         var buffer = new byte[Math.Max(_inputLength, 1)];
         try
         {
-            while (!_cts.IsCancellationRequested)
+            // Ends when the pad goes away or Dispose cancels the pending read (CancelIoEx).
+            while (!_closing)
             {
-                int n = _stream.ReadAsync(buffer, _cts.Token).AsTask().GetAwaiter().GetResult();
+                int n = _readIo.Transfer(_handle, buffer, buffer.Length, write: false);
                 if (n <= 0) break;
                 LastReportAt = DateTime.UtcNow;
                 Report?.Invoke(new ReadOnlySpan<byte>(buffer, 0, n));
             }
         }
-        catch (Exception ex) when (ex is IOException or OperationCanceledException or ObjectDisposedException or UnauthorizedAccessException) { }
+        catch (ObjectDisposedException) { }
         IsClosed = true;
     }
 
@@ -104,8 +108,8 @@ internal sealed class PadConnection : IDisposable
         {
             report.CopyTo(_writeBuffer);
             _writeBuffer.AsSpan(report.Length).Clear();
-            try { _stream.Write(_writeBuffer, 0, _writeBuffer.Length); return true; }
-            catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) { return false; }
+            try { return _writeIo.Transfer(_handle, _writeBuffer, _writeBuffer.Length, write: true) == _writeBuffer.Length; }
+            catch (ObjectDisposedException) { return false; }
         }
     }
 
@@ -114,17 +118,51 @@ internal sealed class PadConnection : IDisposable
     {
         var buffer = new byte[length];
         buffer[0] = id;
-        try { return HidD_GetFeature(_stream.SafeFileHandle, buffer, buffer.Length) ? buffer : null; }
+        try { return HidD_GetFeature(_handle, buffer, buffer.Length) ? buffer : null; }
         catch (ObjectDisposedException) { return null; }
     }
 
     public void Dispose()
     {
         IsClosed = true;
-        _cts.Cancel();
-        _stream.Dispose();
+        _closing = true;
+        try { CancelIoEx(_handle, IntPtr.Zero); } catch (ObjectDisposedException) { }
         _reader?.Join(1000);
-        _cts.Dispose();
+        lock (_writeLock) _handle.Dispose();
+        _readIo.Dispose();
+        _writeIo.Dispose();
+    }
+
+    /// <summary>
+    /// One OVERLAPPED (in native memory, so it never moves) and its event, reused for every read or write in one
+    /// direction; each call waits for its transfer to finish, so only one is ever pending per instance.
+    /// </summary>
+    private sealed class OverlappedIo : IDisposable
+    {
+        private readonly NativeOverlapped* _overlapped = (NativeOverlapped*)NativeMemory.AllocZeroed((nuint)sizeof(NativeOverlapped));
+        private readonly IntPtr _event = CreateEventW(IntPtr.Zero, true, false, IntPtr.Zero);
+
+        /// <summary>Bytes transferred, or -1 when the transfer failed (pad gone, cancelled).</summary>
+        public int Transfer(SafeFileHandle handle, byte[] buffer, int length, bool write)
+        {
+            *_overlapped = default;
+            // The event's low bit set keeps the completion from being queued to a completion port.
+            _overlapped->EventHandle = _event | 1;
+            fixed (byte* data = buffer)
+            {
+                bool done = write ? WriteFile(handle, data, length, IntPtr.Zero, _overlapped)
+                                  : ReadFile(handle, data, length, IntPtr.Zero, _overlapped);
+                if (!done && Marshal.GetLastWin32Error() != 997 /* ERROR_IO_PENDING */) return -1;
+                // Waits here, with the buffer still pinned, until the transfer ends.
+                return GetOverlappedResult(handle, _overlapped, out int n, true) ? n : -1;
+            }
+        }
+
+        public void Dispose()
+        {
+            CloseHandle(_event);
+            NativeMemory.Free(_overlapped);
+        }
     }
 
     private static List<string> HidPaths()
@@ -159,6 +197,12 @@ internal sealed class PadConnection : IDisposable
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern SafeFileHandle CreateFileW(string name, uint access, uint share, IntPtr security, uint disposition, uint flags, IntPtr template);
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool ReadFile(SafeFileHandle h, byte* buffer, int length, IntPtr read, NativeOverlapped* overlapped);
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool WriteFile(SafeFileHandle h, byte* buffer, int length, IntPtr written, NativeOverlapped* overlapped);
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool GetOverlappedResult(SafeFileHandle h, NativeOverlapped* overlapped, out int transferred, bool wait);
+    [DllImport("kernel32.dll")] private static extern bool CancelIoEx(SafeFileHandle h, IntPtr overlapped);
+    [DllImport("kernel32.dll")] private static extern IntPtr CreateEventW(IntPtr security, bool manualReset, bool initialState, IntPtr name);
+    [DllImport("kernel32.dll")] private static extern bool CloseHandle(IntPtr h);
     [DllImport("hid.dll")] private static extern void HidD_GetHidGuid(out Guid guid);
     [DllImport("hid.dll", SetLastError = true)] private static extern bool HidD_GetPreparsedData(SafeFileHandle h, out IntPtr data);
     [DllImport("hid.dll")] private static extern bool HidD_FreePreparsedData(IntPtr data);
