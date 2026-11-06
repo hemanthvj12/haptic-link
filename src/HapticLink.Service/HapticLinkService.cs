@@ -54,10 +54,10 @@ internal sealed class HapticLinkService : IDisposable
             try { Step(); }
             catch (Exception ex) { Log.Write($"loop: {ex}"); }
             // The GC's first budget is sized from the CPU cache (megabytes), so garbage piled up to ~18 MB before a
-            // collection came, and the GC keeps memory it once grabbed. So collect whenever 2 MB of garbage could have
-            // piled up (with the controller speaker playing, the Opus encoder makes ~0.4 MB a second: one every ~5 s),
+            // collection came, and the GC keeps memory it once grabbed. So collect whenever 1 MB of garbage could have
+            // piled up (with the controller speaker playing, the Opus encoder makes ~0.4 MB a second: one every ~2-3 s),
             // and every 30 s anyway. The heap is tiny, so a collection takes well under a millisecond.
-            if (GC.GetTotalAllocatedBytes() - allocatedAtCollect > 2 << 20 || DateTime.UtcNow - lastCollect > TimeSpan.FromSeconds(30))
+            if (GC.GetTotalAllocatedBytes() - allocatedAtCollect > 1 << 20 || DateTime.UtcNow - lastCollect > TimeSpan.FromSeconds(30))
             {
                 GC.Collect();
                 lastCollect = DateTime.UtcNow;
